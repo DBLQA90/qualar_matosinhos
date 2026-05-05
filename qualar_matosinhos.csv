@@ -1,3 +1,3 @@
-objectid,dico,iqar,no2,o3,pm10,pm25,so2,poluenteresp,classe,data,concelho,distrito,data_raw_ms,nd,fetched_at
-100001673,1308,-1,-1,-1,-1,-1,-1,"N,D",N/D,2026-05-04,MATOSINHOS,PORTO,1777852800000,TRUE,2026-05-04T17:11:12Z
-100001674,1308,-1,-1,-1,-1,-1,-1,"N,D",N/D,2026-05-05,MATOSINHOS,PORTO,1777939200000,TRUE,2026-05-04T17:11:12Z
+location,latitude,longitude,forecast_date,qualar_index,source,responsible_pollutants,no2_ug_m3,o3_ug_m3,pm10_ug_m3,pm25_ug_m3,fetched_at
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-05,3,CAMS,O3=104,18,104,10,6,2026-05-05T14:03:35Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-06,3,CAMS,O3=108,21,108,13,9,2026-05-05T14:03:35Z
