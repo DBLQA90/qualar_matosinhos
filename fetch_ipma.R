@@ -7,6 +7,14 @@ DATA_DIR <- "data"
 TEMPERATURE_PATH <- file.path(DATA_DIR, "ipma_matosinhos_temperaturas.csv")
 FORECAST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_forecasts.csv")
 FORECAST_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_forecast_latest.csv")
+STATION_OBSERVATIONS_PATH <- file.path(
+  DATA_DIR,
+  "ipma_matosinhos_station_observations.csv"
+)
+STATION_DAILY_TEMPERATURES_PATH <- file.path(
+  DATA_DIR,
+  "ipma_matosinhos_station_daily_temperatures.csv"
+)
 TEMPERATURE_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_temperature_alerts.csv")
 TEMPERATURE_ALERTS_LATEST_PATH <- file.path(
   DATA_DIR,
@@ -34,6 +42,16 @@ TMAX_URL <- paste0(
   "/open-data/observation/climate/temperature-max/porto/mtxmx-1308-matosinhos.csv"
 )
 FORECAST_URL <- paste0(IPMA_BASE, "/public-data/forecast/aggregate/1130800.json")
+STATION_OBSERVATIONS_URL <- paste0(
+  IPMA_BASE,
+  "/open-data/observation/meteorology/stations/observations.json"
+)
+
+FALLBACK_STATIONS <- data.frame(
+  station_id = c("1200545", "1210649"),
+  station_name = c("Porto, Pedras Rubras", "S. Gens"),
+  stringsAsFactors = FALSE
+)
 
 TEMPERATURE_COLUMNS <- c(
   "date",
@@ -79,6 +97,31 @@ FORECAST_COLUMNS <- c(
   "source"
 )
 
+STATION_OBSERVATION_COLUMNS <- c(
+  "datetime_utc",
+  "datetime_local",
+  "date_local",
+  "station_id",
+  "station_name",
+  "temperature_c",
+  "source",
+  "fetched_at"
+)
+
+STATION_DAILY_TEMPERATURE_COLUMNS <- c(
+  "date",
+  "location",
+  "district",
+  "station_count",
+  "station_ids",
+  "station_names",
+  "tmin_c",
+  "tmax_c",
+  "min_hourly_observations",
+  "source",
+  "fetched_at"
+)
+
 TEMPERATURE_ALERT_COLUMNS <- c(
   "source_updated_at",
   "fetched_at",
@@ -119,9 +162,17 @@ FORECAST_KEY_COLUMNS <- c(
   "forecast_datetime_utc",
   "period_hours"
 )
+STATION_OBSERVATION_KEY_COLUMNS <- c("datetime_utc", "station_id")
+STATION_DAILY_TEMPERATURE_KEY_COLUMNS <- "date"
 TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
 
-HEAT_LEVELS <- c("Sem dados" = -1, "Verde" = 0, "Amarelo" = 1, "Vermelho" = 3)
+HEAT_LEVELS <- c(
+  "Fora de época" = -2,
+  "Sem dados" = -1,
+  "Verde" = 0,
+  "Amarelo" = 1,
+  "Vermelho" = 3
+)
 
 HEAT_SOURCE_LINKS <- c(
   "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
@@ -214,11 +265,13 @@ read_existing <- function(path, columns) {
   missing_columns <- setdiff(columns, names(existing))
   if (length(missing_columns) > 0) {
     message(
-      "Existing file has an older schema; rebuilding ",
+      "Existing file has an older schema; adding missing columns to ",
       path,
-      " from current IPMA data."
+      "."
     )
-    return(empty_frame(columns))
+    for (column in missing_columns) {
+      existing[[column]] <- ""
+    }
   }
 
   existing <- as.data.frame(existing[, columns], stringsAsFactors = FALSE)
@@ -310,6 +363,72 @@ build_temperature_history <- function() {
 
   output[] <- lapply(output, as.character)
   output
+}
+
+parse_ipma_datetime <- function(value) {
+  value <- sub("Z$", "", value)
+  format <- ifelse(grepl(":\\d{2}:\\d{2}$", value), "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M")
+  as.POSIXct(value, format = format, tz = "UTC")
+}
+
+station_name <- function(station_id) {
+  match <- FALLBACK_STATIONS$station_name[FALLBACK_STATIONS$station_id == station_id]
+  if (length(match) == 0) {
+    return("")
+  }
+
+  match[[1]]
+}
+
+flatten_station_observations <- function(api_data) {
+  rows <- list()
+
+  for (datetime_text in names(api_data)) {
+    timestamp <- parse_ipma_datetime(datetime_text)
+    if (is.na(timestamp)) {
+      next
+    }
+
+    datetime_utc <- format(timestamp, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    datetime_local <- format(timestamp, "%Y-%m-%dT%H:%M:%S%z", tz = LOCAL_TZ)
+    date_local <- format(timestamp, "%Y-%m-%d", tz = LOCAL_TZ)
+
+    for (station_id in FALLBACK_STATIONS$station_id) {
+      if (!station_id %in% names(api_data[[datetime_text]])) {
+        next
+      }
+
+      observation <- api_data[[datetime_text]][[station_id]]
+      temperature <- field_text(observation, "temperatura")
+      if (temperature == "") {
+        next
+      }
+
+      rows[[length(rows) + 1]] <- data.frame(
+        datetime_utc = datetime_utc,
+        datetime_local = datetime_local,
+        date_local = date_local,
+        station_id = station_id,
+        station_name = station_name(station_id),
+        temperature_c = temperature,
+        source = "IPMA station hourly observations",
+        fetched_at = FETCHED_AT,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  if (length(rows) == 0) {
+    return(empty_frame(STATION_OBSERVATION_COLUMNS))
+  }
+
+  observations <- bind_rows(rows)
+  observations[] <- lapply(observations, as.character)
+  observations[, STATION_OBSERVATION_COLUMNS]
+}
+
+build_station_observations <- function() {
+  flatten_station_observations(fetch_json(STATION_OBSERVATIONS_URL))
 }
 
 period_type <- function(period_hours) {
@@ -416,6 +535,178 @@ write_forecasts <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+write_station_observations <- function(new_data) {
+  existing <- read_existing(STATION_OBSERVATIONS_PATH, STATION_OBSERVATION_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    STATION_OBSERVATION_COLUMNS,
+    STATION_OBSERVATION_KEY_COLUMNS,
+    setdiff(STATION_OBSERVATION_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(datetime_utc, station_id) %>%
+    distinct(across(all_of(STATION_OBSERVATION_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, STATION_OBSERVATIONS_PATH, na = "")
+  combined
+}
+
+build_station_daily_temperatures <- function(station_observations) {
+  if (nrow(station_observations) == 0) {
+    return(empty_frame(STATION_DAILY_TEMPERATURE_COLUMNS))
+  }
+
+  today <- as.Date(format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ))
+
+  station_daily <- station_observations %>%
+    mutate(
+      date = as.character(date_local),
+      temperature_num = to_num(temperature_c)
+    ) %>%
+    filter(!is.na(temperature_num), as.Date(date) < today) %>%
+    group_by(date, station_id, station_name) %>%
+    summarise(
+      station_tmin_c = min(temperature_num, na.rm = TRUE),
+      station_tmax_c = max(temperature_num, na.rm = TRUE),
+      hourly_observations = n(),
+      .groups = "drop"
+    )
+
+  if (nrow(station_daily) == 0) {
+    return(empty_frame(STATION_DAILY_TEMPERATURE_COLUMNS))
+  }
+
+  daily <- station_daily %>%
+    group_by(date) %>%
+    summarise(
+      location = LOCATION,
+      district = DISTRICT,
+      station_count = n_distinct(station_id),
+      station_ids = paste(sort(unique(station_id)), collapse = ";"),
+      station_names = paste(sort(unique(station_name)), collapse = "; "),
+      tmin_c = round(mean(station_tmin_c, na.rm = TRUE), 3),
+      tmax_c = round(mean(station_tmax_c, na.rm = TRUE), 3),
+      min_hourly_observations = min(hourly_observations, na.rm = TRUE),
+      source = "IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema",
+      fetched_at = FETCHED_AT,
+      .groups = "drop"
+    ) %>%
+    arrange(date) %>%
+    select(all_of(STATION_DAILY_TEMPERATURE_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  daily[] <- lapply(daily, as.character)
+  daily
+}
+
+write_station_daily_temperatures <- function(new_data) {
+  existing <- read_existing(STATION_DAILY_TEMPERATURES_PATH, STATION_DAILY_TEMPERATURE_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    STATION_DAILY_TEMPERATURE_COLUMNS,
+    STATION_DAILY_TEMPERATURE_KEY_COLUMNS,
+    setdiff(STATION_DAILY_TEMPERATURE_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(date) %>%
+    distinct(across(all_of(STATION_DAILY_TEMPERATURE_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, STATION_DAILY_TEMPERATURES_PATH, na = "")
+  combined
+}
+
+is_blank <- function(value) {
+  value <- as_text(value)
+  value == "" || is.na(to_num(value))
+}
+
+recalculate_tmean <- function(row) {
+  tmin <- to_num(row$tmin_c)
+  tmax <- to_num(row$tmax_c)
+  if (is.na(tmin) || is.na(tmax)) {
+    return("")
+  }
+
+  as.character(round((tmin + tmax) / 2, 3))
+}
+
+station_daily_as_temperature_rows <- function(station_daily) {
+  if (nrow(station_daily) == 0) {
+    return(empty_frame(TEMPERATURE_COLUMNS))
+  }
+
+  rows <- station_daily %>%
+    transmute(
+      date = as.character(date),
+      location = LOCATION,
+      district = DISTRICT,
+      dico = DICO,
+      tmean_estimated_c = as.character(round((to_num(tmin_c) + to_num(tmax_c)) / 2, 3)),
+      tmin_c = as.character(round(to_num(tmin_c), 3)),
+      tmax_c = as.character(round(to_num(tmax_c), 3)),
+      tmin_concelho_min_c = "",
+      tmin_concelho_max_c = "",
+      tmax_concelho_min_c = "",
+      tmax_concelho_max_c = "",
+      source = paste0(
+        source,
+        " (station_count=",
+        station_count,
+        "; station_names=",
+        station_names,
+        ")"
+      ),
+      fetched_at = FETCHED_AT
+    ) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  rows[] <- lapply(rows, as.character)
+  rows[, TEMPERATURE_COLUMNS]
+}
+
+apply_station_temperature_fallback <- function(climate_data, station_daily) {
+  fallback_rows <- station_daily_as_temperature_rows(station_daily)
+  combined <- climate_data
+
+  for (i in seq_len(nrow(fallback_rows))) {
+    fallback <- fallback_rows[i, , drop = FALSE]
+    match_index <- which(combined$date == fallback$date[1])
+
+    if (length(match_index) == 0) {
+      combined <- bind_rows(combined, fallback)
+      next
+    }
+
+    index <- match_index[1]
+    used_fallback <- FALSE
+
+    if (is_blank(combined$tmin_c[index]) && !is_blank(fallback$tmin_c[1])) {
+      combined$tmin_c[index] <- fallback$tmin_c[1]
+      used_fallback <- TRUE
+    }
+
+    if (is_blank(combined$tmax_c[index]) && !is_blank(fallback$tmax_c[1])) {
+      combined$tmax_c[index] <- fallback$tmax_c[1]
+      used_fallback <- TRUE
+    }
+
+    if (used_fallback) {
+      combined$tmean_estimated_c[index] <- recalculate_tmean(combined[index, , drop = FALSE])
+      combined$source[index] <- paste(combined$source[index], fallback$source[1], sep = "; ")
+    }
+  }
+
+  combined %>%
+    arrange(date) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
 latest_source_update <- function(data) {
   valid <- data$source_updated_at[data$source_updated_at != ""]
   if (length(valid) == 0) {
@@ -457,12 +748,25 @@ has_missing <- function(values) {
 }
 
 alert_level <- function(label) {
+  if (!label %in% names(HEAT_LEVELS)) {
+    return("")
+  }
+
   as.character(HEAT_LEVELS[[label]])
 }
 
 season_thresholds <- function(target_date, kind) {
   month_value <- as.integer(format(as.Date(target_date), "%m"))
-  warm_rule <- month_value >= 7
+  applicable <- month_value >= 5 && month_value <= 10
+  warm_rule <- month_value >= 7 && month_value <= 10
+
+  if (!applicable) {
+    return(list(
+      applicable = FALSE,
+      rule = "fora de epoca DSP",
+      thresholds = c(yellow = NA_real_, red = NA_real_)
+    ))
+  }
 
   if (kind == "max") {
     thresholds <- if (warm_rule) {
@@ -479,10 +783,11 @@ season_thresholds <- function(target_date, kind) {
   }
 
   list(
+    applicable = TRUE,
     rule = ifelse(
       warm_rule,
-      "mes >= 7",
-      "mes < 7"
+      "mes 7-10",
+      "mes 5-6"
     ),
     thresholds = thresholds
   )
@@ -492,6 +797,15 @@ classify_tmax_alert <- function(target_date, obs_m3, obs_m2, obs_m1, forecast_d0
   season <- season_thresholds(target_date, "max")
   thresholds <- season$thresholds
   values <- c(obs_m3, obs_m2, obs_m1, forecast_d0, forecast_p1)
+
+  if (!season$applicable) {
+    return(list(
+      alert = "Fora de época",
+      level = alert_level("Fora de época"),
+      yellow = "",
+      red = ""
+    ))
+  }
 
   if (has_missing(values)) {
     return(list(
@@ -523,6 +837,15 @@ classify_tmin_alert <- function(target_date, obs_m2, obs_m1, forecast_d0, foreca
   thresholds <- season$thresholds
   values <- c(obs_m2, obs_m1, forecast_d0, forecast_p1)
 
+  if (!season$applicable) {
+    return(list(
+      alert = "Fora de época",
+      level = alert_level("Fora de época"),
+      yellow = "",
+      red = ""
+    ))
+  }
+
   if (has_missing(values)) {
     return(list(
       alert = "Sem dados",
@@ -550,6 +873,10 @@ classify_tmin_alert <- function(target_date, obs_m2, obs_m1, forecast_d0, foreca
 
 overall_heat_alert <- function(tmax_alert, tmin_alert) {
   levels <- c(to_num(alert_level(tmax_alert)), to_num(alert_level(tmin_alert)))
+  if (all(levels == to_num(alert_level("Fora de época")))) {
+    return("Fora de época")
+  }
+
   if (all(levels < 0)) {
     return("Sem dados")
   }
@@ -575,6 +902,17 @@ display_temp <- function(value) {
   value
 }
 
+threshold_pair_text <- function(yellow, red) {
+  yellow <- as_text(yellow)
+  red <- as_text(red)
+
+  if (yellow == "" || red == "") {
+    return("não aplicáveis")
+  }
+
+  paste0(yellow, "/", red, " ºC")
+}
+
 missing_inputs_text <- function(values) {
   missing <- names(values)[is.na(unlist(values, use.names = FALSE))]
   if (length(missing) == 0) {
@@ -585,6 +923,10 @@ missing_inputs_text <- function(values) {
 }
 
 recommendation_summary <- function(overall_alert, tmax_alert, tmin_alert) {
+  if (overall_alert == "Fora de época") {
+    return("Indicador DSP de temperatura fora da época de aplicação operacional (maio a outubro).")
+  }
+
   if (overall_alert == "Sem dados") {
     return("Dados insuficientes para emitir alerta automático de temperatura DSP.")
   }
@@ -733,6 +1075,15 @@ temperature_recommendations <- function(row) {
   tmax_alert <- as_text(row$tmax_alert)
   tmin_alert <- as_text(row$tmin_alert)
 
+  if (overall == "Fora de época") {
+    return(paste(
+      "Comunicação geral: o indicador Temperatura DSP não é aplicado automaticamente fora do período de maio a outubro; manter apenas vigilância meteorológica habitual.",
+      "Grupos vulneráveis: manter cuidados gerais adequados à temperatura prevista e validar manualmente qualquer situação excecional de calor fora de época.",
+      "Estabelecimentos: sem ativação automática por este indicador fora da época DSP; manter planos de contingência disponíveis caso exista aviso meteorológico ou orientação das autoridades de saúde.",
+      sep = "\n\n"
+    ))
+  }
+
   if (overall == "Sem dados") {
     return(paste(
       "Comunicação geral: não emitir mensagem automática de risco térmico sem validação manual; faltam dados para aplicar integralmente a regra DSP.",
@@ -856,16 +1207,12 @@ build_temperature_daily_section <- function(row) {
       ". Alerta por máxima: ",
       as_text(row$tmax_alert),
       " (limiares ",
-      as_text(row$tmax_yellow_threshold_c),
-      "/",
-      as_text(row$tmax_red_threshold_c),
-      " ºC). Alerta por mínima: ",
+      threshold_pair_text(row$tmax_yellow_threshold_c, row$tmax_red_threshold_c),
+      "). Alerta por mínima: ",
       as_text(row$tmin_alert),
       " (limiares ",
-      as_text(row$tmin_yellow_threshold_c),
-      "/",
-      as_text(row$tmin_red_threshold_c),
-      " ºC)."
+      threshold_pair_text(row$tmin_yellow_threshold_c, row$tmin_red_threshold_c),
+      ")."
     ),
     "",
     temperature_values_text(row),
@@ -948,7 +1295,18 @@ update_daily_temperature_report <- function(alerts) {
 
 dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 
-temperature_data <- build_temperature_history()
+climate_temperature_data <- build_temperature_history()
+
+station_observations_data <- build_station_observations()
+station_observations_history <- write_station_observations(station_observations_data)
+
+station_daily_data <- build_station_daily_temperatures(station_observations_history)
+station_daily_history <- write_station_daily_temperatures(station_daily_data)
+
+temperature_data <- apply_station_temperature_fallback(
+  climate_temperature_data,
+  station_daily_history
+)
 temperature_history <- write_temperature_history(temperature_data)
 
 forecast_data <- build_forecasts()
@@ -963,10 +1321,16 @@ daily_report_path <- update_daily_temperature_report(temperature_alerts_result$l
 
 message(sprintf(
   paste(
-    "OK - %d temperature row(s) fetched; temperature history has %d row(s).",
+    "OK - %d climate temperature row(s) fetched; %d station observation row(s) fetched.",
+    "Station observation archive has %d row(s); station daily fallback has %d row(s).",
+    "%d temperature row(s) prepared; temperature history has %d row(s).",
     "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
     "%d temperature alert row(s) calculated; alert archive has %d row(s); daily report: %s."
   ),
+  nrow(climate_temperature_data),
+  nrow(station_observations_data),
+  nrow(station_observations_history),
+  nrow(station_daily_history),
   nrow(temperature_data),
   nrow(temperature_history),
   nrow(forecast_data),

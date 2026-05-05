@@ -83,3 +83,4 @@ date,location,district,dico,tmean_estimated_c,tmin_c,tmax_c,tmin_concelho_min_c,
 2025-11-09,Matosinhos,Porto,1308,12.432,7.533,17.331,6.902,8.1,16.704,17.8,IPMA open-data observation/climate temperature-min and temperature-max by municipality,2026-05-05T16:18:57Z
 2025-11-10,Matosinhos,Porto,1308,15.317,12.67,17.964,12.501,12.8,17.203,18.6,IPMA open-data observation/climate temperature-min and temperature-max by municipality,2026-05-05T16:18:57Z
 2025-11-11,Matosinhos,Porto,1308,16.782,14.607,18.957,13.903,15.2,18.403,19.4,IPMA open-data observation/climate temperature-min and temperature-max by municipality,2026-05-05T16:18:57Z
+2026-05-05,Matosinhos,Porto,1308,13.5,10.4,16.6,,,,,"IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema (station_count=2; station_names=Porto, Pedras Rubras; S. Gens)",2026-05-05T23:00:30Z
