@@ -479,9 +479,9 @@ build_daily_report <- function(predictions, report_date) {
   )
 }
 
-extract_temperature_section <- function(existing) {
-  start <- which(existing == "<!-- temperatura-dsp:start -->")
-  end <- which(existing == "<!-- temperatura-dsp:end -->")
+extract_marked_section <- function(existing, marker) {
+  start <- which(existing == paste0("<!-- ", marker, ":start -->"))
+  end <- which(existing == paste0("<!-- ", marker, ":end -->"))
 
   if (length(start) == 0 || length(end) == 0 || end[1] <= start[1]) {
     return(character())
@@ -490,7 +490,7 @@ extract_temperature_section <- function(existing) {
   existing[start[1]:end[1]]
 }
 
-insert_temperature_section <- function(content, section) {
+insert_marked_section <- function(content, section) {
   if (length(section) == 0) {
     return(content)
   }
@@ -509,6 +509,18 @@ insert_temperature_section <- function(content, section) {
   c(content, "", section)
 }
 
+insert_existing_managed_sections <- function(content, existing) {
+  markers <- c("temperatura-dsp", "uv")
+  for (marker in markers) {
+    content <- insert_marked_section(
+      content,
+      extract_marked_section(existing, marker)
+    )
+  }
+
+  content
+}
+
 write_daily_report <- function(predictions, report_date) {
   dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
   report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
@@ -516,7 +528,7 @@ write_daily_report <- function(predictions, report_date) {
 
   if (file.exists(report_path)) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
-    content <- insert_temperature_section(content, extract_temperature_section(existing))
+    content <- insert_existing_managed_sections(content, existing)
   }
 
   writeLines(content, report_path, useBytes = TRUE)

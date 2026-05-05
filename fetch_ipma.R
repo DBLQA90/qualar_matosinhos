@@ -20,6 +20,8 @@ TEMPERATURE_ALERTS_LATEST_PATH <- file.path(
   DATA_DIR,
   "ipma_matosinhos_temperature_alert_latest.csv"
 )
+UV_INDEX_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index.csv")
+UV_INDEX_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index_latest.csv")
 DAILY_DIR <- "daily"
 
 LOCAL_TZ <- "Europe/Lisbon"
@@ -155,6 +157,22 @@ TEMPERATURE_ALERT_COLUMNS <- c(
   "source"
 )
 
+UV_INDEX_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "global_id_local",
+  "target_date",
+  "uv_index",
+  "uv_level",
+  "uv_level_order",
+  "uv_color",
+  "protection_required",
+  "recommendation_summary",
+  "source"
+)
+
 TEMPERATURE_KEY_COLUMNS <- "date"
 FORECAST_KEY_COLUMNS <- c(
   "source_updated_at",
@@ -165,6 +183,7 @@ FORECAST_KEY_COLUMNS <- c(
 STATION_OBSERVATION_KEY_COLUMNS <- c("datetime_utc", "station_id")
 STATION_DAILY_TEMPERATURE_KEY_COLUMNS <- "date"
 TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
+UV_INDEX_KEY_COLUMNS <- c("source_updated_at", "target_date")
 
 HEAT_LEVELS <- c(
   "Fora de época" = -2,
@@ -179,6 +198,23 @@ HEAT_SOURCE_LINKS <- c(
   "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
   "- DGS, temperaturas elevadas - recomendações: https://www.dgs.pt/em-destaque/temperaturas-elevadas-recomendacoes-da-dgs.aspx",
   "- SNS/DGS/INSA, recomendações contra o calor: https://www.sns.min-saude.pt/comunicado-conjunto-aumento-da-temperatura-recomendacoes-contra-o-calor/"
+)
+
+UV_LEVELS <- c(
+  "Sem dados" = -1,
+  "Baixo" = 0,
+  "Moderado" = 1,
+  "Alto" = 2,
+  "Muito Alto" = 3,
+  "Extremo" = 4
+)
+
+UV_SOURCE_LINKS <- c(
+  "- IPMA, Índice Ultravioleta e classes IUV: https://www.ipma.pt/pt/enciclopedia/amb.atmosfera/uv/index.html",
+  "- IPMA, previsão do Índice Ultravioleta: https://www.ipma.pt/pt/otempo/prev.uv/",
+  "- OMS, índice UV e recomendações de proteção: https://www.who.int/news-room/questions-and-answers/item/radiation-the-ultraviolet-%28uv%29-index",
+  "- OMS, radiação ultravioleta e proteção: https://www.who.int/news-room/fact-sheets/detail/ultraviolet-radiation",
+  "- EPA, escala do Índice UV conforme orientações internacionais: https://www.epa.gov/sunsafety/uv-index-scale-0"
 )
 
 as_text <- function(x) {
@@ -1070,6 +1106,133 @@ write_temperature_alerts <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+classify_uv <- function(value) {
+  uv <- to_num(value)
+  if (is.na(uv)) {
+    return(list(
+      level = "Sem dados",
+      order = as.character(UV_LEVELS[["Sem dados"]]),
+      color = "",
+      protection = "Sem dados"
+    ))
+  }
+
+  if (uv < 3) {
+    return(list(
+      level = "Baixo",
+      order = as.character(UV_LEVELS[["Baixo"]]),
+      color = "Verde",
+      protection = "Proteção mínima"
+    ))
+  }
+
+  if (uv < 6) {
+    return(list(
+      level = "Moderado",
+      order = as.character(UV_LEVELS[["Moderado"]]),
+      color = "Amarelo",
+      protection = "Proteção necessária"
+    ))
+  }
+
+  if (uv < 8) {
+    return(list(
+      level = "Alto",
+      order = as.character(UV_LEVELS[["Alto"]]),
+      color = "Laranja",
+      protection = "Proteção reforçada"
+    ))
+  }
+
+  if (uv < 11) {
+    return(list(
+      level = "Muito Alto",
+      order = as.character(UV_LEVELS[["Muito Alto"]]),
+      color = "Vermelho",
+      protection = "Proteção extra"
+    ))
+  }
+
+  list(
+    level = "Extremo",
+    order = as.character(UV_LEVELS[["Extremo"]]),
+    color = "Violeta",
+    protection = "Evitar exposição"
+  )
+}
+
+uv_recommendation_summary <- function(level) {
+  switch(
+    level,
+    "Sem dados" = "Sem dados de Índice UV para emitir recomendação automática.",
+    "Baixo" = "Risco baixo; manter vigilância e proteção básica para pele/olhos sensíveis.",
+    "Moderado" = "Proteção necessária; usar óculos com filtro UV, chapéu, roupa que cubra a pele e protetor solar em pele exposta.",
+    "Alto" = "Proteção reforçada; reduzir exposição nas horas centrais, procurar sombra e usar proteção ocular, chapéu, roupa e protetor solar.",
+    "Muito Alto" = "Proteção extra; evitar exposição prolongada nas horas centrais e reforçar sombra, roupa, chapéu, óculos e protetor solar.",
+    "Extremo" = "Evitar exposição solar tanto quanto possível, sobretudo nas horas centrais; atividades exteriores devem ser adiadas ou fortemente condicionadas.",
+    "Confirmar manualmente o nível UV antes de comunicar."
+  )
+}
+
+build_uv_index <- function(latest_forecasts) {
+  daily_forecasts <- daily_forecast_rows(latest_forecasts)
+  source_update <- latest_source_update(daily_forecasts)
+
+  if (nrow(daily_forecasts) == 0 || source_update == "") {
+    return(empty_frame(UV_INDEX_COLUMNS))
+  }
+
+  rows <- lapply(seq_len(nrow(daily_forecasts)), function(i) {
+    uv_value <- field_text(as.list(daily_forecasts[i, , drop = FALSE]), "uv_index")
+    classification <- classify_uv(uv_value)
+
+    data.frame(
+      source_updated_at = source_update,
+      fetched_at = FETCHED_AT,
+      location = LOCATION,
+      district = DISTRICT,
+      global_id_local = GLOBAL_ID_LOCAL,
+      target_date = as_text(daily_forecasts$forecast_date[i]),
+      uv_index = uv_value,
+      uv_level = classification$level,
+      uv_level_order = classification$order,
+      uv_color = classification$color,
+      protection_required = classification$protection,
+      recommendation_summary = uv_recommendation_summary(classification$level),
+      source = "IPMA public-data forecast aggregate daily UV index",
+      stringsAsFactors = FALSE
+    )
+  })
+
+  uv <- bind_rows(rows)
+  uv[] <- lapply(uv, as.character)
+  uv[, UV_INDEX_COLUMNS]
+}
+
+write_uv_index <- function(new_data) {
+  existing <- read_existing(UV_INDEX_PATH, UV_INDEX_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    UV_INDEX_COLUMNS,
+    UV_INDEX_KEY_COLUMNS,
+    setdiff(UV_INDEX_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, target_date) %>%
+    distinct(across(all_of(UV_INDEX_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, UV_INDEX_PATH, na = "")
+
+  latest_update <- latest_source_update(combined)
+  latest <- combined[combined$source_updated_at == latest_update, , drop = FALSE]
+  write_csv(latest, UV_INDEX_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
 temperature_recommendations <- function(row) {
   overall <- as_text(row$overall_temperature_alert)
   tmax_alert <- as_text(row$tmax_alert)
@@ -1238,9 +1401,88 @@ build_temperature_daily_section <- function(row) {
   )
 }
 
-replace_managed_section <- function(existing, section) {
-  start <- which(existing == "<!-- temperatura-dsp:start -->")
-  end <- which(existing == "<!-- temperatura-dsp:end -->")
+uv_recommendations <- function(row) {
+  level <- as_text(row$uv_level)
+
+  if (level == "Sem dados") {
+    return(paste(
+      "Comunicação geral: não emitir recomendação automática de UV sem confirmar a previsão; manter referência às medidas gerais de proteção solar quando houver exposição.",
+      "Grupos vulneráveis: crianças, pessoas idosas, pessoas com pele clara, antecedentes de cancro cutâneo, doença ocular ou medicação fotossensibilizante devem manter proteção reforçada se houver exposição ao sol.",
+      "Estruturas: manter monitorização da previsão UV e garantir disponibilidade de sombra, água e protetor solar quando houver atividades exteriores.",
+      sep = "\n\n"
+    ))
+  }
+
+  general <- switch(
+    level,
+    "Baixo" = "Comunicação geral: risco UV baixo. A exposição ao ar livre pode decorrer normalmente; pessoas com pele/olhos sensíveis devem manter óculos de sol com filtro UV e proteção básica.",
+    "Moderado" = "Comunicação geral: risco UV moderado. Usar óculos de sol com filtro UV, chapéu e protetor solar nas zonas expostas; preferir sombra nas horas centrais se a exposição for prolongada.",
+    "Alto" = "Comunicação geral: risco UV alto. Procurar sombra entre o final da manhã e o meio da tarde, usar roupa que cubra a pele, chapéu de abas, óculos com filtro UV e protetor solar em pele exposta.",
+    "Muito Alto" = "Comunicação geral: risco UV muito alto. Evitar exposição prolongada nas horas centrais; se for inevitável estar no exterior, combinar sombra, roupa, chapéu, óculos com filtro UV e protetor solar, reaplicando quando necessário.",
+    "Extremo" = "Comunicação geral: risco UV extremo. Evitar exposição solar tanto quanto possível, sobretudo nas horas centrais; adiar atividades exteriores não essenciais e usar proteção máxima quando a exposição for inevitável.",
+    "Comunicação geral: confirmar manualmente o nível UV antes de comunicar."
+  )
+
+  vulnerable <- switch(
+    level,
+    "Baixo" = "Grupos vulneráveis: manter proteção básica e evitar exposição desnecessária em bebés, pessoas com pele muito clara, antecedentes de cancro cutâneo ou doença ocular.",
+    "Moderado" = "Grupos vulneráveis: crianças, grávidas, pessoas idosas, pessoas com pele clara ou medicação fotossensibilizante devem usar chapéu, roupa protetora, óculos UV e protetor solar; bebés devem ficar fora da exposição direta.",
+    "Alto" = "Grupos vulneráveis: evitar sol direto nas horas centrais, privilegiar sombra e espaços interiores frescos; reforçar proteção ocular e cutânea e vigiar sinais de queimadura solar.",
+    "Muito Alto" = "Grupos vulneráveis: evitar atividades ao sol nas horas centrais; crianças e pessoas muito sensíveis devem permanecer à sombra ou no interior, com proteção completa se tiverem de sair.",
+    "Extremo" = "Grupos vulneráveis: não programar exposição solar direta; manter crianças e pessoas de maior risco no interior ou em sombra densa e garantir proteção total em deslocações inevitáveis.",
+    "Grupos vulneráveis: aguardar validação manual dos dados."
+  )
+
+  structures <- switch(
+    level,
+    "Baixo" = "Estruturas: manter atividades exteriores previstas, com acesso a água e sombra disponível.",
+    "Moderado" = "Estruturas: planear pausas à sombra, disponibilizar protetor solar e incentivar chapéu/óculos em atividades exteriores prolongadas.",
+    "Alto" = "Estruturas: ajustar horários de atividades exteriores, privilegiar manhã cedo ou fim do dia, garantir sombra efetiva e controlar proteção de crianças, utentes e trabalhadores.",
+    "Muito Alto" = "Estruturas: reduzir ou relocalizar atividades exteriores para espaços sombreados/interiores; reforçar comunicação, pausas, supervisão e disponibilidade de protetor solar.",
+    "Extremo" = "Estruturas: suspender ou adiar atividades exteriores não essenciais nas horas centrais; ativar alternativas interiores/sombreadas e supervisionar deslocações inevitáveis.",
+    "Estruturas: aguardar validação manual dos dados."
+  )
+
+  paste(general, vulnerable, structures, sep = "\n\n")
+}
+
+build_uv_daily_section <- function(row) {
+  target_date <- as_text(row$target_date)
+
+  c(
+    "<!-- uv:start -->",
+    paste0("## Índice UV - ", target_date),
+    "",
+    paste0(
+      "Fonte dos valores: IPMA. Atualização IPMA: ",
+      as_text(row$source_updated_at),
+      " UTC."
+    ),
+    "",
+    paste0(
+      "Índice UV previsto: ",
+      display_temp(row$uv_index),
+      ". Nível de risco: ",
+      as_text(row$uv_level),
+      ". Proteção: ",
+      as_text(row$protection_required),
+      "."
+    ),
+    "",
+    uv_recommendations(row),
+    "",
+    "Fontes de apoio para recomendações UV:",
+    "",
+    UV_SOURCE_LINKS,
+    "<!-- uv:end -->"
+  )
+}
+
+replace_marked_section <- function(existing, section, marker) {
+  start_marker <- paste0("<!-- ", marker, ":start -->")
+  end_marker <- paste0("<!-- ", marker, ":end -->")
+  start <- which(existing == start_marker)
+  end <- which(existing == end_marker)
 
   if (length(start) > 0 && length(end) > 0 && end[1] > start[1]) {
     before <- if (start[1] > 1) existing[seq_len(start[1] - 1)] else character()
@@ -1256,6 +1498,10 @@ replace_managed_section <- function(existing, section) {
   }
 
   c(existing, "", section)
+}
+
+replace_managed_section <- function(existing, section) {
+  replace_marked_section(existing, section, "temperatura-dsp")
 }
 
 update_daily_temperature_report <- function(alerts) {
@@ -1293,6 +1539,41 @@ update_daily_temperature_report <- function(alerts) {
   report_path
 }
 
+update_daily_uv_report <- function(uv_index) {
+  if (nrow(uv_index) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  selected <- uv_index[uv_index$target_date == report_date, , drop = FALSE]
+  if (nrow(selected) == 0) {
+    selected <- uv_index[uv_index$target_date >= report_date, , drop = FALSE]
+  }
+  if (nrow(selected) == 0) {
+    selected <- uv_index[1, , drop = FALSE]
+  }
+
+  target_report_date <- as_text(selected$target_date)
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(target_report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", target_report_date),
+      ""
+    )
+  }
+
+  section <- build_uv_daily_section(selected[1, , drop = FALSE])
+  updated <- replace_marked_section(existing, section, "uv")
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 
 climate_temperature_data <- build_temperature_history()
@@ -1317,7 +1598,11 @@ temperature_alerts_data <- build_temperature_alerts(
   forecast_result$latest
 )
 temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
-daily_report_path <- update_daily_temperature_report(temperature_alerts_result$latest)
+daily_temperature_report_path <- update_daily_temperature_report(temperature_alerts_result$latest)
+
+uv_index_data <- build_uv_index(forecast_result$latest)
+uv_index_result <- write_uv_index(uv_index_data)
+daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
 
 message(sprintf(
   paste(
@@ -1325,7 +1610,8 @@ message(sprintf(
     "Station observation archive has %d row(s); station daily fallback has %d row(s).",
     "%d temperature row(s) prepared; temperature history has %d row(s).",
     "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
-    "%d temperature alert row(s) calculated; alert archive has %d row(s); daily report: %s."
+    "%d temperature alert row(s) calculated; alert archive has %d row(s); temperature report: %s.",
+    "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s."
   ),
   nrow(climate_temperature_data),
   nrow(station_observations_data),
@@ -1338,5 +1624,8 @@ message(sprintf(
   nrow(forecast_result$latest),
   nrow(temperature_alerts_data),
   nrow(temperature_alerts_result$combined),
-  daily_report_path
+  daily_temperature_report_path,
+  nrow(uv_index_data),
+  nrow(uv_index_result$combined),
+  daily_uv_report_path
 ))
