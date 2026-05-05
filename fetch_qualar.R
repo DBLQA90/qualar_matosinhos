@@ -479,10 +479,47 @@ build_daily_report <- function(predictions, report_date) {
   )
 }
 
+extract_temperature_section <- function(existing) {
+  start <- which(existing == "<!-- temperatura-dsp:start -->")
+  end <- which(existing == "<!-- temperatura-dsp:end -->")
+
+  if (length(start) == 0 || length(end) == 0 || end[1] <= start[1]) {
+    return(character())
+  }
+
+  existing[start[1]:end[1]]
+}
+
+insert_temperature_section <- function(content, section) {
+  if (length(section) == 0) {
+    return(content)
+  }
+
+  source_header <- grep("^## Fontes usadas para recomendações", content)
+  if (length(source_header) > 0) {
+    before <- if (source_header[1] > 1) {
+      content[seq_len(source_header[1] - 1)]
+    } else {
+      character()
+    }
+    after <- content[source_header[1]:length(content)]
+    return(c(before, section, "", after))
+  }
+
+  c(content, "", section)
+}
+
 write_daily_report <- function(predictions, report_date) {
   dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
   report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
-  writeLines(build_daily_report(predictions, report_date), report_path, useBytes = TRUE)
+  content <- build_daily_report(predictions, report_date)
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+    content <- insert_temperature_section(content, extract_temperature_section(existing))
+  }
+
+  writeLines(content, report_path, useBytes = TRUE)
   report_path
 }
 

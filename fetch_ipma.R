@@ -7,6 +7,12 @@ DATA_DIR <- "data"
 TEMPERATURE_PATH <- file.path(DATA_DIR, "ipma_matosinhos_temperaturas.csv")
 FORECAST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_forecasts.csv")
 FORECAST_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_forecast_latest.csv")
+TEMPERATURE_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_temperature_alerts.csv")
+TEMPERATURE_ALERTS_LATEST_PATH <- file.path(
+  DATA_DIR,
+  "ipma_matosinhos_temperature_alert_latest.csv"
+)
+DAILY_DIR <- "daily"
 
 LOCAL_TZ <- "Europe/Lisbon"
 FETCHED_AT <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
@@ -73,12 +79,55 @@ FORECAST_COLUMNS <- c(
   "source"
 )
 
+TEMPERATURE_ALERT_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "dico",
+  "global_id_local",
+  "target_date",
+  "season_rule",
+  "tmax_alert",
+  "tmax_alert_level",
+  "tmax_yellow_threshold_c",
+  "tmax_red_threshold_c",
+  "tmax_observed_d_minus_3_c",
+  "tmax_observed_d_minus_2_c",
+  "tmax_observed_d_minus_1_c",
+  "tmax_forecast_d0_c",
+  "tmax_forecast_d_plus_1_c",
+  "tmin_alert",
+  "tmin_alert_level",
+  "tmin_yellow_threshold_c",
+  "tmin_red_threshold_c",
+  "tmin_observed_d_minus_2_c",
+  "tmin_observed_d_minus_1_c",
+  "tmin_forecast_d0_c",
+  "tmin_forecast_d_plus_1_c",
+  "overall_temperature_alert",
+  "overall_temperature_alert_level",
+  "missing_inputs",
+  "recommendation_summary",
+  "source"
+)
+
 TEMPERATURE_KEY_COLUMNS <- "date"
 FORECAST_KEY_COLUMNS <- c(
   "source_updated_at",
   "global_id_local",
   "forecast_datetime_utc",
   "period_hours"
+)
+TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
+
+HEAT_LEVELS <- c("Sem dados" = -1, "Verde" = 0, "Amarelo" = 1, "Vermelho" = 3)
+
+HEAT_SOURCE_LINKS <- c(
+  "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+  "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+  "- DGS, temperaturas elevadas - recomendações: https://www.dgs.pt/em-destaque/temperaturas-elevadas-recomendacoes-da-dgs.aspx",
+  "- SNS/DGS/INSA, recomendações contra o calor: https://www.sns.min-saude.pt/comunicado-conjunto-aumento-da-temperatura-recomendacoes-contra-o-calor/"
 )
 
 as_text <- function(x) {
@@ -367,6 +416,536 @@ write_forecasts <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+latest_source_update <- function(data) {
+  valid <- data$source_updated_at[data$source_updated_at != ""]
+  if (length(valid) == 0) {
+    return("")
+  }
+
+  max(valid, na.rm = TRUE)
+}
+
+daily_forecast_rows <- function(forecasts) {
+  forecasts %>%
+    filter(period_hours == "24") %>%
+    arrange(forecast_date) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+value_for_date <- function(data, date, column) {
+  match <- data[data$date == as.character(date), , drop = FALSE]
+  if (nrow(match) == 0 || !column %in% names(match)) {
+    return(NA_real_)
+  }
+
+  value <- to_num(match[[column]][1])
+  ifelse(is.na(value), NA_real_, value)
+}
+
+forecast_value_for_date <- function(daily_forecasts, date, column) {
+  match <- daily_forecasts[daily_forecasts$forecast_date == as.character(date), , drop = FALSE]
+  if (nrow(match) == 0 || !column %in% names(match)) {
+    return(NA_real_)
+  }
+
+  value <- to_num(match[[column]][1])
+  ifelse(is.na(value), NA_real_, value)
+}
+
+has_missing <- function(values) {
+  any(is.na(unlist(values, use.names = FALSE)))
+}
+
+alert_level <- function(label) {
+  as.character(HEAT_LEVELS[[label]])
+}
+
+season_thresholds <- function(target_date, kind) {
+  month_value <- as.integer(format(as.Date(target_date), "%m"))
+  warm_rule <- month_value >= 7
+
+  if (kind == "max") {
+    thresholds <- if (warm_rule) {
+      c(yellow = 33, red = 35)
+    } else {
+      c(yellow = 32, red = 34)
+    }
+  } else {
+    thresholds <- if (warm_rule) {
+      c(yellow = 22, red = 25)
+    } else {
+      c(yellow = 21, red = 24)
+    }
+  }
+
+  list(
+    rule = ifelse(
+      warm_rule,
+      "mes >= 7",
+      "mes < 7"
+    ),
+    thresholds = thresholds
+  )
+}
+
+classify_tmax_alert <- function(target_date, obs_m3, obs_m2, obs_m1, forecast_d0, forecast_p1) {
+  season <- season_thresholds(target_date, "max")
+  thresholds <- season$thresholds
+  values <- c(obs_m3, obs_m2, obs_m1, forecast_d0, forecast_p1)
+
+  if (has_missing(values)) {
+    return(list(
+      alert = "Sem dados",
+      level = alert_level("Sem dados"),
+      yellow = thresholds[["yellow"]],
+      red = thresholds[["red"]]
+    ))
+  }
+
+  alert <- if (all(values >= thresholds[["red"]])) {
+    "Vermelho"
+  } else if (all(c(obs_m1, forecast_d0, forecast_p1) >= thresholds[["yellow"]])) {
+    "Amarelo"
+  } else {
+    "Verde"
+  }
+
+  list(
+    alert = alert,
+    level = alert_level(alert),
+    yellow = thresholds[["yellow"]],
+    red = thresholds[["red"]]
+  )
+}
+
+classify_tmin_alert <- function(target_date, obs_m2, obs_m1, forecast_d0, forecast_p1) {
+  season <- season_thresholds(target_date, "min")
+  thresholds <- season$thresholds
+  values <- c(obs_m2, obs_m1, forecast_d0, forecast_p1)
+
+  if (has_missing(values)) {
+    return(list(
+      alert = "Sem dados",
+      level = alert_level("Sem dados"),
+      yellow = thresholds[["yellow"]],
+      red = thresholds[["red"]]
+    ))
+  }
+
+  alert <- if (all(values >= thresholds[["red"]])) {
+    "Vermelho"
+  } else if (all(values >= thresholds[["yellow"]])) {
+    "Amarelo"
+  } else {
+    "Verde"
+  }
+
+  list(
+    alert = alert,
+    level = alert_level(alert),
+    yellow = thresholds[["yellow"]],
+    red = thresholds[["red"]]
+  )
+}
+
+overall_heat_alert <- function(tmax_alert, tmin_alert) {
+  levels <- c(to_num(alert_level(tmax_alert)), to_num(alert_level(tmin_alert)))
+  if (all(levels < 0)) {
+    return("Sem dados")
+  }
+
+  max_level <- max(levels, na.rm = TRUE)
+  names(HEAT_LEVELS)[HEAT_LEVELS == max_level][1]
+}
+
+format_temp <- function(value) {
+  if (is.na(value)) {
+    return("")
+  }
+
+  as.character(round(value, 1))
+}
+
+display_temp <- function(value) {
+  value <- as_text(value)
+  if (value == "") {
+    return("sem dados")
+  }
+
+  value
+}
+
+missing_inputs_text <- function(values) {
+  missing <- names(values)[is.na(unlist(values, use.names = FALSE))]
+  if (length(missing) == 0) {
+    return("")
+  }
+
+  paste(missing, collapse = "; ")
+}
+
+recommendation_summary <- function(overall_alert, tmax_alert, tmin_alert) {
+  if (overall_alert == "Sem dados") {
+    return("Dados insuficientes para emitir alerta automático de temperatura DSP.")
+  }
+
+  if (overall_alert == "Verde") {
+    return("Manter vigilância habitual, hidratação regular e monitorização das atualizações meteorológicas.")
+  }
+
+  advice <- character()
+
+  if (tmax_alert %in% c("Amarelo", "Vermelho")) {
+    advice <- c(
+      advice,
+      "calor diurno persistente: reduzir exposição direta ao sol e esforço físico nas horas de maior calor"
+    )
+  }
+
+  if (tmin_alert %in% c("Amarelo", "Vermelho")) {
+    advice <- c(
+      advice,
+      "noites quentes persistentes: reforçar arrefecimento noturno, hidratação e contacto com pessoas isoladas"
+    )
+  }
+
+  paste(advice, collapse = "; ")
+}
+
+build_temperature_alerts <- function(temperature_history, latest_forecasts) {
+  daily_forecasts <- daily_forecast_rows(latest_forecasts)
+  source_update <- latest_source_update(daily_forecasts)
+
+  if (nrow(daily_forecasts) == 0 || source_update == "") {
+    return(empty_frame(TEMPERATURE_ALERT_COLUMNS))
+  }
+
+  rows <- lapply(seq_len(nrow(daily_forecasts)), function(i) {
+    target_date <- as.Date(daily_forecasts$forecast_date[i])
+    season <- season_thresholds(target_date, "max")
+
+    tmax_obs_m3 <- value_for_date(temperature_history, target_date - 3, "tmax_c")
+    tmax_obs_m2 <- value_for_date(temperature_history, target_date - 2, "tmax_c")
+    tmax_obs_m1 <- value_for_date(temperature_history, target_date - 1, "tmax_c")
+    tmax_forecast_d0 <- forecast_value_for_date(daily_forecasts, target_date, "tmax_c")
+    tmax_forecast_p1 <- forecast_value_for_date(daily_forecasts, target_date + 1, "tmax_c")
+
+    tmin_obs_m2 <- value_for_date(temperature_history, target_date - 2, "tmin_c")
+    tmin_obs_m1 <- value_for_date(temperature_history, target_date - 1, "tmin_c")
+    tmin_forecast_d0 <- forecast_value_for_date(daily_forecasts, target_date, "tmin_c")
+    tmin_forecast_p1 <- forecast_value_for_date(daily_forecasts, target_date + 1, "tmin_c")
+
+    tmax <- classify_tmax_alert(
+      target_date,
+      tmax_obs_m3,
+      tmax_obs_m2,
+      tmax_obs_m1,
+      tmax_forecast_d0,
+      tmax_forecast_p1
+    )
+    tmin <- classify_tmin_alert(
+      target_date,
+      tmin_obs_m2,
+      tmin_obs_m1,
+      tmin_forecast_d0,
+      tmin_forecast_p1
+    )
+    overall <- overall_heat_alert(tmax$alert, tmin$alert)
+
+    missing <- missing_inputs_text(c(
+      tmax_observed_d_minus_3_c = tmax_obs_m3,
+      tmax_observed_d_minus_2_c = tmax_obs_m2,
+      tmax_observed_d_minus_1_c = tmax_obs_m1,
+      tmax_forecast_d0_c = tmax_forecast_d0,
+      tmax_forecast_d_plus_1_c = tmax_forecast_p1,
+      tmin_observed_d_minus_2_c = tmin_obs_m2,
+      tmin_observed_d_minus_1_c = tmin_obs_m1,
+      tmin_forecast_d0_c = tmin_forecast_d0,
+      tmin_forecast_d_plus_1_c = tmin_forecast_p1
+    ))
+
+    data.frame(
+      source_updated_at = source_update,
+      fetched_at = FETCHED_AT,
+      location = LOCATION,
+      district = DISTRICT,
+      dico = DICO,
+      global_id_local = GLOBAL_ID_LOCAL,
+      target_date = as.character(target_date),
+      season_rule = season$rule,
+      tmax_alert = tmax$alert,
+      tmax_alert_level = tmax$level,
+      tmax_yellow_threshold_c = as.character(tmax$yellow),
+      tmax_red_threshold_c = as.character(tmax$red),
+      tmax_observed_d_minus_3_c = format_temp(tmax_obs_m3),
+      tmax_observed_d_minus_2_c = format_temp(tmax_obs_m2),
+      tmax_observed_d_minus_1_c = format_temp(tmax_obs_m1),
+      tmax_forecast_d0_c = format_temp(tmax_forecast_d0),
+      tmax_forecast_d_plus_1_c = format_temp(tmax_forecast_p1),
+      tmin_alert = tmin$alert,
+      tmin_alert_level = tmin$level,
+      tmin_yellow_threshold_c = as.character(tmin$yellow),
+      tmin_red_threshold_c = as.character(tmin$red),
+      tmin_observed_d_minus_2_c = format_temp(tmin_obs_m2),
+      tmin_observed_d_minus_1_c = format_temp(tmin_obs_m1),
+      tmin_forecast_d0_c = format_temp(tmin_forecast_d0),
+      tmin_forecast_d_plus_1_c = format_temp(tmin_forecast_p1),
+      overall_temperature_alert = overall,
+      overall_temperature_alert_level = alert_level(overall),
+      missing_inputs = missing,
+      recommendation_summary = recommendation_summary(overall, tmax$alert, tmin$alert),
+      source = "DSP temperature rule using IPMA observed municipality temperatures and IPMA forecasts",
+      stringsAsFactors = FALSE
+    )
+  })
+
+  alerts <- bind_rows(rows)
+  alerts[] <- lapply(alerts, as.character)
+  alerts[, TEMPERATURE_ALERT_COLUMNS]
+}
+
+write_temperature_alerts <- function(new_data) {
+  existing <- read_existing(TEMPERATURE_ALERTS_PATH, TEMPERATURE_ALERT_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    TEMPERATURE_ALERT_COLUMNS,
+    TEMPERATURE_ALERT_KEY_COLUMNS,
+    setdiff(TEMPERATURE_ALERT_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, target_date) %>%
+    distinct(across(all_of(TEMPERATURE_ALERT_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, TEMPERATURE_ALERTS_PATH, na = "")
+
+  latest_update <- latest_source_update(combined)
+  latest <- combined[combined$source_updated_at == latest_update, , drop = FALSE]
+  write_csv(latest, TEMPERATURE_ALERTS_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
+temperature_recommendations <- function(row) {
+  overall <- as_text(row$overall_temperature_alert)
+  tmax_alert <- as_text(row$tmax_alert)
+  tmin_alert <- as_text(row$tmin_alert)
+
+  if (overall == "Sem dados") {
+    return(paste(
+      "Comunicação geral: não emitir mensagem automática de risco térmico sem validação manual; faltam dados para aplicar integralmente a regra DSP.",
+      "Grupos vulneráveis: manter vigilância de rotina em pessoas idosas, crianças pequenas, grávidas, pessoas com doença crónica, pessoas isoladas e trabalhadores no exterior; confirmar a situação meteorológica antes de escalar medidas.",
+      "Estabelecimentos: manter monitorização das previsões IPMA e preparar medidas de calor, mas sem ativação automática por este indicador enquanto os dados estiverem incompletos.",
+      sep = "\n\n"
+    ))
+  }
+
+  general <- switch(
+    overall,
+    "Verde" = "Comunicação geral: mensagem simples de vigilância. Manter hidratação regular, refeições leves nos dias mais quentes e atenção às atualizações meteorológicas.",
+    "Amarelo" = "Comunicação geral: mensagem preventiva. Reforçar ingestão de água, procurar locais frescos e reduzir exposição solar direta e esforço físico no exterior, sobretudo entre as 11h e as 17h.",
+    "Vermelho" = "Comunicação geral: mensagem de alerta. Evitar exposição direta ao sol e esforço físico no exterior nas horas de maior calor; procurar ambientes frescos ou climatizados e acompanhar sinais de desidratação, exaustão ou agravamento de doença crónica.",
+    "Comunicação geral: confirmar manualmente o nível de alerta antes de comunicar."
+  )
+
+  vulnerable <- switch(
+    overall,
+    "Verde" = "Grupos vulneráveis: manter rotinas habituais, com hidratação frequente e atenção a sintomas em pessoas idosas, crianças, grávidas e pessoas com doenças cardiovasculares, respiratórias, renais, diabetes ou medicação sensível ao calor.",
+    "Amarelo" = "Grupos vulneráveis: beber água mesmo sem sede, permanecer em ambientes frescos pelo menos 2 a 3 horas por dia, evitar saídas e esforço físico nas horas de maior calor e garantir contacto regular com pessoas isoladas.",
+    "Vermelho" = "Grupos vulneráveis: permanecer em ambiente fresco ou climatizado sempre que possível, reforçar contacto ativo com pessoas isoladas, ajustar atividades ao início da manhã ou ao fim do dia e contactar SNS 24 (808 24 24 24) ou cuidados de saúde se houver agravamento de sintomas.",
+    "Grupos vulneráveis: aguardar validação manual dos dados."
+  )
+
+  establishments <- switch(
+    overall,
+    "Verde" = "Estabelecimentos: manter atividades previstas, garantindo disponibilidade de água e locais de sombra/descanso.",
+    "Amarelo" = "Estabelecimentos: adaptar atividades ao ar livre, privilegiar manhã cedo, reforçar pausas, água, sombra e vigilância de utentes ou trabalhadores vulneráveis.",
+    "Vermelho" = "Estabelecimentos: suspender ou substituir atividades físicas intensas ao ar livre, reforçar arrefecimento dos espaços, organizar pausas frequentes, acompanhar sintomas e garantir contacto rápido com famílias/cuidadores quando aplicável.",
+    "Estabelecimentos: aguardar validação manual dos dados."
+  )
+
+  specific <- character()
+  if (tmax_alert %in% c("Amarelo", "Vermelho")) {
+    specific <- c(
+      specific,
+      "Sinal de máxima: risco associado a calor diurno persistente; deslocar tarefas, passeios, terapias e exercício para horários mais frescos e evitar viaturas estacionadas ao sol."
+    )
+  }
+
+  if (tmin_alert %in% c("Amarelo", "Vermelho")) {
+    specific <- c(
+      specific,
+      "Sinal de mínima: risco associado a noites quentes e menor recuperação fisiológica; reforçar arrefecimento noturno seguro, roupa leve, hidratação e acompanhamento de pessoas que vivem sozinhas."
+    )
+  }
+
+  if (length(specific) == 0) {
+    specific <- "Sem medidas adicionais por sinal térmico para além da vigilância habitual."
+  } else {
+    specific <- paste(specific, collapse = " ")
+  }
+
+  paste(general, vulnerable, establishments, specific, sep = "\n\n")
+}
+
+temperature_values_text <- function(row) {
+  paste0(
+    "Máxima: observadas D-3/D-2/D-1 = ",
+    paste(
+      vapply(
+        c(
+        as_text(row$tmax_observed_d_minus_3_c),
+        as_text(row$tmax_observed_d_minus_2_c),
+        as_text(row$tmax_observed_d_minus_1_c)
+        ),
+        display_temp,
+        character(1)
+      ),
+      collapse = "/"
+    ),
+    " ºC; previstas D/D+1 = ",
+    paste(
+      vapply(
+        c(as_text(row$tmax_forecast_d0_c), as_text(row$tmax_forecast_d_plus_1_c)),
+        display_temp,
+        character(1)
+      ),
+      collapse = "/"
+    ),
+    " ºC. Mínima: observadas D-2/D-1 = ",
+    paste(
+      vapply(
+        c(as_text(row$tmin_observed_d_minus_2_c), as_text(row$tmin_observed_d_minus_1_c)),
+        display_temp,
+        character(1)
+      ),
+      collapse = "/"
+    ),
+    " ºC; previstas D/D+1 = ",
+    paste(
+      vapply(
+        c(as_text(row$tmin_forecast_d0_c), as_text(row$tmin_forecast_d_plus_1_c)),
+        display_temp,
+        character(1)
+      ),
+      collapse = "/"
+    ),
+    " ºC."
+  )
+}
+
+build_temperature_daily_section <- function(row) {
+  target_date <- as_text(row$target_date)
+  missing <- as_text(row$missing_inputs)
+
+  content <- c(
+    "<!-- temperatura-dsp:start -->",
+    paste0("## Temperatura DSP - ", target_date),
+    "",
+    paste0(
+      "Fonte dos valores: IPMA. Atualização IPMA: ",
+      as_text(row$source_updated_at),
+      " UTC."
+    ),
+    "",
+    paste0(
+      "Nível global de temperatura: ",
+      as_text(row$overall_temperature_alert),
+      ". Alerta por máxima: ",
+      as_text(row$tmax_alert),
+      " (limiares ",
+      as_text(row$tmax_yellow_threshold_c),
+      "/",
+      as_text(row$tmax_red_threshold_c),
+      " ºC). Alerta por mínima: ",
+      as_text(row$tmin_alert),
+      " (limiares ",
+      as_text(row$tmin_yellow_threshold_c),
+      "/",
+      as_text(row$tmin_red_threshold_c),
+      " ºC)."
+    ),
+    "",
+    temperature_values_text(row),
+    ""
+  )
+
+  if (missing != "") {
+    content <- c(
+      content,
+      paste0("Dados em falta para a regra automática: ", missing, "."),
+      ""
+    )
+  }
+
+  c(
+    content,
+    temperature_recommendations(row),
+    "",
+    "Fontes de apoio para recomendações de temperatura:",
+    "",
+    HEAT_SOURCE_LINKS,
+    "<!-- temperatura-dsp:end -->"
+  )
+}
+
+replace_managed_section <- function(existing, section) {
+  start <- which(existing == "<!-- temperatura-dsp:start -->")
+  end <- which(existing == "<!-- temperatura-dsp:end -->")
+
+  if (length(start) > 0 && length(end) > 0 && end[1] > start[1]) {
+    before <- if (start[1] > 1) existing[seq_len(start[1] - 1)] else character()
+    after <- if (end[1] < length(existing)) existing[(end[1] + 1):length(existing)] else character()
+    return(c(before, section, after))
+  }
+
+  source_header <- grep("^## Fontes usadas para recomendações", existing)
+  if (length(source_header) > 0) {
+    before <- if (source_header[1] > 1) existing[seq_len(source_header[1] - 1)] else character()
+    after <- existing[source_header[1]:length(existing)]
+    return(c(before, section, "", after))
+  }
+
+  c(existing, "", section)
+}
+
+update_daily_temperature_report <- function(alerts) {
+  if (nrow(alerts) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  selected <- alerts[alerts$target_date == report_date, , drop = FALSE]
+  if (nrow(selected) == 0) {
+    selected <- alerts[alerts$target_date >= report_date, , drop = FALSE]
+  }
+  if (nrow(selected) == 0) {
+    selected <- alerts[1, , drop = FALSE]
+  }
+
+  target_report_date <- as_text(selected$target_date)
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(target_report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", target_report_date),
+      ""
+    )
+  }
+
+  section <- build_temperature_daily_section(selected[1, , drop = FALSE])
+  updated <- replace_managed_section(existing, section)
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 
 temperature_data <- build_temperature_history()
@@ -375,14 +954,25 @@ temperature_history <- write_temperature_history(temperature_data)
 forecast_data <- build_forecasts()
 forecast_result <- write_forecasts(forecast_data)
 
+temperature_alerts_data <- build_temperature_alerts(
+  temperature_history,
+  forecast_result$latest
+)
+temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
+daily_report_path <- update_daily_temperature_report(temperature_alerts_result$latest)
+
 message(sprintf(
   paste(
     "OK - %d temperature row(s) fetched; temperature history has %d row(s).",
-    "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s)."
+    "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
+    "%d temperature alert row(s) calculated; alert archive has %d row(s); daily report: %s."
   ),
   nrow(temperature_data),
   nrow(temperature_history),
   nrow(forecast_data),
   nrow(forecast_result$combined),
-  nrow(forecast_result$latest)
+  nrow(forecast_result$latest),
+  nrow(temperature_alerts_data),
+  nrow(temperature_alerts_result$combined),
+  daily_report_path
 ))
