@@ -1446,30 +1446,143 @@ uv_recommendations <- function(row) {
   paste(general, vulnerable, structures, sep = "\n\n")
 }
 
-build_uv_daily_section <- function(row) {
-  target_date <- as_text(row$target_date)
+has_uv_index_value <- function(row) {
+  as_text(row$uv_index) != ""
+}
+
+uv_rows_for_report <- function(uv_index, report_date) {
+  uv_dates <- as.Date(uv_index$target_date)
+  report_date_value <- as.Date(report_date)
+  future_rows <- uv_index[
+    !is.na(uv_dates) & uv_dates >= report_date_value,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(future_rows) == 0) {
+    future_rows <- uv_index
+  }
+
+  rows_with_values <- future_rows[
+    vapply(seq_len(nrow(future_rows)), function(i) {
+      has_uv_index_value(future_rows[i, , drop = FALSE])
+    }, logical(1)),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(rows_with_values) > 0) {
+    return(rows_with_values %>%
+      arrange(target_date) %>%
+      as.data.frame(stringsAsFactors = FALSE))
+  }
+
+  future_rows %>%
+    arrange(target_date) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+uv_table_lines <- function(rows) {
+  if (nrow(rows) == 0) {
+    return("Sem previsões UV preenchidas no último snapshot IPMA.")
+  }
+
+  c(
+    "| Data | Índice UV | Nível | Proteção |",
+    "|---|---:|---|---|",
+    vapply(seq_len(nrow(rows)), function(i) {
+      row <- rows[i, , drop = FALSE]
+      paste0(
+        "| ",
+        as_text(row$target_date),
+        " | ",
+        display_temp(row$uv_index),
+        " | ",
+        as_text(row$uv_level),
+        " | ",
+        as_text(row$protection_required),
+        " |"
+      )
+    }, character(1))
+  )
+}
+
+highest_uv_row <- function(rows) {
+  rows_with_values <- rows[
+    vapply(seq_len(nrow(rows)), function(i) {
+      has_uv_index_value(rows[i, , drop = FALSE])
+    }, logical(1)),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(rows_with_values) == 0) {
+    return(rows[1, , drop = FALSE])
+  }
+
+  rows_with_values %>%
+    mutate(
+      uv_level_order_num = to_num(uv_level_order),
+      uv_index_num = to_num(uv_index)
+    ) %>%
+    arrange(desc(uv_level_order_num), desc(uv_index_num), target_date) %>%
+    slice(1) %>%
+    select(all_of(UV_INDEX_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+build_uv_daily_section <- function(rows, report_date) {
+  source_update <- latest_source_update(rows)
+  if (source_update == "") {
+    source_update <- as_text(rows$source_updated_at)
+  }
+
+  rows_with_values <- rows[
+    vapply(seq_len(nrow(rows)), function(i) {
+      has_uv_index_value(rows[i, , drop = FALSE])
+    }, logical(1)),
+    ,
+    drop = FALSE
+  ]
+  recommendation_row <- highest_uv_row(rows)
+
+  if (nrow(rows_with_values) > 0) {
+    first_date <- min(as.Date(rows_with_values$target_date), na.rm = TRUE)
+    last_date <- max(as.Date(rows_with_values$target_date), na.rm = TRUE)
+    date_scope <- if (first_date == last_date) {
+      as.character(first_date)
+    } else {
+      paste0(as.character(first_date), " a ", as.character(last_date))
+    }
+  } else {
+    date_scope <- report_date
+  }
 
   c(
     "<!-- uv:start -->",
-    paste0("## Índice UV - ", target_date),
+    paste0("## Índice UV - previsões disponíveis em ", report_date),
     "",
     paste0(
       "Fonte dos valores: IPMA. Atualização IPMA: ",
-      as_text(row$source_updated_at),
-      " UTC."
-    ),
-    "",
-    paste0(
-      "Índice UV previsto: ",
-      display_temp(row$uv_index),
-      ". Nível de risco: ",
-      as_text(row$uv_level),
-      ". Proteção: ",
-      as_text(row$protection_required),
+      source_update,
+      " UTC. Período com valor previsto: ",
+      date_scope,
       "."
     ),
     "",
-    uv_recommendations(row),
+    uv_table_lines(rows_with_values),
+    "",
+    paste0(
+      "Nível máximo no período: ",
+      as_text(recommendation_row$uv_level),
+      " em ",
+      as_text(recommendation_row$target_date),
+      " (Índice UV ",
+      display_temp(recommendation_row$uv_index),
+      "). As recomendações abaixo seguem este nível mais exigente."
+    ),
+    "",
+    uv_recommendations(recommendation_row),
     "",
     "Fontes de apoio para recomendações UV:",
     "",
@@ -1545,17 +1658,14 @@ update_daily_uv_report <- function(uv_index) {
   }
 
   report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
-  selected <- uv_index[uv_index$target_date == report_date, , drop = FALSE]
-  if (nrow(selected) == 0) {
-    selected <- uv_index[uv_index$target_date >= report_date, , drop = FALSE]
+  uv_dates <- as.Date(uv_index$target_date)
+  if (!any(!is.na(uv_dates) & uv_dates >= as.Date(report_date))) {
+    report_date <- as_text(uv_index$target_date[1])
   }
-  if (nrow(selected) == 0) {
-    selected <- uv_index[1, , drop = FALSE]
-  }
+  selected <- uv_rows_for_report(uv_index, report_date)
 
-  target_report_date <- as_text(selected$target_date)
   dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
-  report_path <- file.path(DAILY_DIR, paste0(target_report_date, ".md"))
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
 
   if (file.exists(report_path)) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
@@ -1563,12 +1673,12 @@ update_daily_uv_report <- function(uv_index) {
     existing <- c(
       paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
       "",
-      paste0("Ficheiro diário: ", target_report_date),
+      paste0("Ficheiro diário: ", report_date),
       ""
     )
   }
 
-  section <- build_uv_daily_section(selected[1, , drop = FALSE])
+  section <- build_uv_daily_section(selected, report_date)
   updated <- replace_marked_section(existing, section, "uv")
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
