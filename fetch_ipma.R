@@ -22,6 +22,8 @@ TEMPERATURE_ALERTS_LATEST_PATH <- file.path(
 )
 UV_INDEX_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index.csv")
 UV_INDEX_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index_latest.csv")
+HEAT_WAVE_PATH <- file.path(DATA_DIR, "ipma_matosinhos_heat_waves.csv")
+HEAT_WAVE_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_heat_waves_latest.csv")
 IPMA_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts.csv")
 IPMA_ALERTS_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts_latest.csv")
 DAILY_DIR <- "daily"
@@ -187,6 +189,38 @@ UV_INDEX_COLUMNS <- c(
   "source"
 )
 
+HEAT_WAVE_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "dico",
+  "global_id_local",
+  "target_date",
+  "tmax_c",
+  "tmax_source",
+  "normal_period",
+  "normal_station",
+  "normal_tmax_c",
+  "threshold_c",
+  "exceeds_threshold",
+  "available_window_days",
+  "consecutive_exceedance_days",
+  "heat_wave_6day",
+  "forecast_in_6day_window",
+  "pre_heat_wave_5day",
+  "forecast_in_5day_window",
+  "heat_wave_window_start",
+  "heat_wave_window_end",
+  "pre_heat_wave_window_start",
+  "pre_heat_wave_window_end",
+  "heat_wave_status",
+  "heat_wave_level",
+  "missing_inputs",
+  "recommendation_summary",
+  "source"
+)
+
 IPMA_ALERT_COLUMNS <- c(
   "source_updated_at",
   "fetched_at",
@@ -219,6 +253,7 @@ STATION_OBSERVATION_KEY_COLUMNS <- c("datetime_utc", "station_id")
 STATION_DAILY_TEMPERATURE_KEY_COLUMNS <- "date"
 TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
 UV_INDEX_KEY_COLUMNS <- c("source_updated_at", "target_date")
+HEAT_WAVE_KEY_COLUMNS <- c("source_updated_at", "target_date")
 IPMA_ALERT_KEY_COLUMNS <- c(
   "source_updated_at",
   "alert_source",
@@ -259,6 +294,40 @@ UV_SOURCE_LINKS <- c(
   "- OMS, índice UV e recomendações de proteção: https://www.who.int/news-room/questions-and-answers/item/radiation-the-ultraviolet-%28uv%29-index",
   "- OMS, radiação ultravioleta e proteção: https://www.who.int/news-room/fact-sheets/detail/ultraviolet-radiation",
   "- EPA, escala do Índice UV conforme orientações internacionais: https://www.epa.gov/sunsafety/uv-index-scale-0"
+)
+
+HEAT_WAVE_LEVELS <- c(
+  "Sem dados" = -1,
+  "Sem critério" = 0,
+  "Sinal preventivo de 5 dias" = 1,
+  "Possível Onda de Calor" = 2,
+  "Onda de Calor" = 3
+)
+
+HEAT_WAVE_NORMAL_PERIOD <- "1991-2020"
+HEAT_WAVE_NORMAL_STATION <- "Porto/Pedras Rubras (estação IPMA 545)"
+HEAT_WAVE_NORMAL_TMAX <- c(
+  "1" = 14.0,
+  "2" = 15.0,
+  "3" = 17.0,
+  "4" = 18.1,
+  "5" = 20.3,
+  "6" = 22.7,
+  "7" = 24.3,
+  "8" = 24.8,
+  "9" = 23.5,
+  "10" = 20.7,
+  "11" = 16.8,
+  "12" = 14.7
+)
+HEAT_WAVE_THRESHOLD_DELTA_C <- 5
+
+HEAT_WAVE_SOURCE_LINKS <- c(
+  "- IPMA, definição de Onda de Calor: https://www.ipma.pt/pt/enciclopedia/clima/index.html?page=onda.calor.xml",
+  "- IPMA, monitorização de Ondas de Calor: https://www.ipma.pt/pt/oclima/ondascalor/",
+  "- IPMA, Normal Climatológica 1991-2020 - Porto/Pedras Rubras: https://www.ipma.pt/opencms/bin/file.data/climate-normal/cn_91-20_PORTO_PEDRAS_RUBRAS.pdf",
+  "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+  "- DGS, calor - perguntas e respostas: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/calor/perguntas-e-respostas.aspx"
 )
 
 IPMA_ALERT_SOURCE_LINKS <- c(
@@ -1289,6 +1358,345 @@ write_uv_index <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+normal_tmax_for_date <- function(date) {
+  month_value <- as.character(as.integer(format(as.Date(date), "%m")))
+  value <- HEAT_WAVE_NORMAL_TMAX[[month_value]]
+  if (is.null(value)) {
+    return(NA_real_)
+  }
+
+  value
+}
+
+heat_wave_level <- function(status) {
+  if (!status %in% names(HEAT_WAVE_LEVELS)) {
+    return("")
+  }
+
+  as.character(HEAT_WAVE_LEVELS[[status]])
+}
+
+build_heat_wave_series <- function(temperature_history, daily_forecasts) {
+  observed <- temperature_history %>%
+    transmute(
+      date = as.Date(date),
+      tmax_c = to_num(tmax_c),
+      tmax_source = "observed"
+    )
+
+  forecast <- daily_forecasts %>%
+    transmute(
+      date = as.Date(forecast_date),
+      tmax_c = to_num(tmax_c),
+      tmax_source = "forecast"
+    )
+
+  combined <- bind_rows(observed, forecast) %>%
+    filter(!is.na(date))
+
+  if (nrow(combined) == 0) {
+    return(data.frame(
+      date = as.Date(character()),
+      tmax_c = numeric(),
+      tmax_source = character(),
+      normal_tmax_c = numeric(),
+      threshold_c = numeric(),
+      exceeds_threshold = logical(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  chosen <- combined %>%
+    mutate(
+      has_value = !is.na(tmax_c),
+      preference = case_when(
+        has_value & tmax_source == "observed" ~ 1,
+        has_value & tmax_source == "forecast" ~ 2,
+        tmax_source == "observed" ~ 3,
+        TRUE ~ 4
+      )
+    ) %>%
+    arrange(date, preference) %>%
+    group_by(date) %>%
+    slice(1) %>%
+    ungroup() %>%
+    select(date, tmax_c, tmax_source)
+
+  full_dates <- data.frame(
+    date = seq(min(chosen$date), max(chosen$date), by = "day"),
+    stringsAsFactors = FALSE
+  )
+
+  series <- full_dates %>%
+    left_join(chosen, by = "date") %>%
+    arrange(date) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  series$normal_tmax_c <- vapply(
+    seq_along(series$date),
+    function(i) normal_tmax_for_date(series$date[i]),
+    numeric(1)
+  )
+  series$threshold_c <- series$normal_tmax_c + HEAT_WAVE_THRESHOLD_DELTA_C
+  series$exceeds_threshold <- !is.na(series$tmax_c) &
+    !is.na(series$threshold_c) &
+    series$tmax_c > series$threshold_c
+
+  series
+}
+
+window_marks <- function(series, window_size) {
+  n <- nrow(series)
+  matched <- rep(FALSE, n)
+  forecast_in_window <- rep(FALSE, n)
+  window_start <- rep("", n)
+  window_end <- rep("", n)
+
+  if (n < window_size) {
+    return(list(
+      matched = matched,
+      forecast_in_window = forecast_in_window,
+      window_start = window_start,
+      window_end = window_end
+    ))
+  }
+
+  for (i in seq_len(n - window_size + 1)) {
+    indices <- i:(i + window_size - 1)
+    if (any(is.na(series$tmax_c[indices])) ||
+        any(is.na(series$threshold_c[indices])) ||
+        !all(series$exceeds_threshold[indices])) {
+      next
+    }
+
+    uses_forecast <- any(series$tmax_source[indices] == "forecast")
+    for (index in indices) {
+      matched[index] <- TRUE
+      forecast_in_window[index] <- forecast_in_window[index] || uses_forecast
+      if (window_start[index] == "") {
+        window_start[index] <- as.character(series$date[indices[1]])
+        window_end[index] <- as.character(series$date[indices[window_size]])
+      }
+    }
+  }
+
+  list(
+    matched = matched,
+    forecast_in_window = forecast_in_window,
+    window_start = window_start,
+    window_end = window_end
+  )
+}
+
+contiguous_lengths <- function(series, predicate) {
+  n <- nrow(series)
+  lengths <- rep(0L, n)
+
+  for (i in seq_len(n)) {
+    if (!isTRUE(predicate[i])) {
+      next
+    }
+
+    left <- i
+    while (left > 1 && isTRUE(predicate[left - 1])) {
+      left <- left - 1
+    }
+
+    right <- i
+    while (right < n && isTRUE(predicate[right + 1])) {
+      right <- right + 1
+    }
+
+    lengths[i] <- right - left + 1L
+  }
+
+  lengths
+}
+
+heat_wave_status <- function(tmax, threshold, heat_wave, forecast_heat_wave, pre_heat_wave) {
+  if (is.na(tmax) || is.na(threshold)) {
+    return("Sem dados")
+  }
+
+  if (isTRUE(heat_wave) && isTRUE(forecast_heat_wave)) {
+    return("Possível Onda de Calor")
+  }
+
+  if (isTRUE(heat_wave)) {
+    return("Onda de Calor")
+  }
+
+  if (isTRUE(pre_heat_wave)) {
+    return("Sinal preventivo de 5 dias")
+  }
+
+  "Sem critério"
+}
+
+heat_wave_missing_inputs <- function(tmax, threshold, available_window_days, exceeds_threshold) {
+  missing <- character()
+  if (is.na(tmax)) {
+    missing <- c(missing, "tmax_c")
+  }
+  if (is.na(threshold)) {
+    missing <- c(missing, "normal_tmax_c")
+  }
+  if (isTRUE(exceeds_threshold) && available_window_days < 6) {
+    missing <- c(missing, "janela de 6 dias incompleta")
+  }
+
+  paste(missing, collapse = "; ")
+}
+
+heat_wave_recommendation_summary <- function(status) {
+  switch(
+    status,
+    "Sem dados" = "Dados insuficientes para avaliar automaticamente o critério de onda de calor.",
+    "Sem critério" = "Sem critério de onda de calor no horizonte disponível; manter vigilância e acompanhar atualizações.",
+    "Sinal preventivo de 5 dias" = "Sinal preventivo: sequência de 5 dias acima do limiar; preparar medidas caso a tendência se prolongue.",
+    "Possível Onda de Calor" = "Possível onda de calor com base em valores observados e previstos; reforçar medidas de prevenção do calor e acompanhar novas previsões.",
+    "Onda de Calor" = "Onda de calor confirmada por 6 ou mais dias consecutivos acima do limiar; ativar medidas de prevenção e proteção de grupos vulneráveis.",
+    "Confirmar manualmente o estado de onda de calor antes de comunicar."
+  )
+}
+
+build_heat_waves <- function(temperature_history, latest_forecasts) {
+  daily_forecasts <- daily_forecast_rows(latest_forecasts)
+  source_update <- latest_source_update(daily_forecasts)
+
+  if (nrow(daily_forecasts) == 0 || source_update == "") {
+    return(empty_frame(HEAT_WAVE_COLUMNS))
+  }
+
+  series <- build_heat_wave_series(temperature_history, daily_forecasts)
+  six_day <- window_marks(series, 6)
+  five_day <- window_marks(series, 5)
+  available_lengths <- contiguous_lengths(series, !is.na(series$tmax_c))
+  exceedance_lengths <- contiguous_lengths(series, series$exceeds_threshold)
+
+  target_dates <- sort(unique(as.Date(daily_forecasts$forecast_date)))
+  target_dates <- target_dates[!is.na(target_dates)]
+
+  rows <- lapply(seq_along(target_dates), function(i) {
+    target_date <- target_dates[i]
+    index <- match(target_date, series$date)
+    if (is.na(index)) {
+      tmax <- NA_real_
+      source <- ""
+      normal <- normal_tmax_for_date(target_date)
+      threshold <- normal + HEAT_WAVE_THRESHOLD_DELTA_C
+      exceeds <- FALSE
+      available_window_days <- 0L
+      consecutive_days <- 0L
+      heat_wave <- FALSE
+      forecast_heat_wave <- FALSE
+      pre_heat_wave <- FALSE
+      forecast_pre_heat_wave <- FALSE
+      heat_start <- ""
+      heat_end <- ""
+      pre_start <- ""
+      pre_end <- ""
+    } else {
+      tmax <- series$tmax_c[index]
+      source <- as_text(series$tmax_source[index])
+      normal <- series$normal_tmax_c[index]
+      threshold <- series$threshold_c[index]
+      exceeds <- isTRUE(series$exceeds_threshold[index])
+      available_window_days <- available_lengths[index]
+      consecutive_days <- exceedance_lengths[index]
+      heat_wave <- six_day$matched[index]
+      forecast_heat_wave <- six_day$forecast_in_window[index]
+      pre_heat_wave <- five_day$matched[index]
+      forecast_pre_heat_wave <- five_day$forecast_in_window[index]
+      heat_start <- six_day$window_start[index]
+      heat_end <- six_day$window_end[index]
+      pre_start <- five_day$window_start[index]
+      pre_end <- five_day$window_end[index]
+    }
+
+    status <- heat_wave_status(
+      tmax,
+      threshold,
+      heat_wave,
+      forecast_heat_wave,
+      pre_heat_wave
+    )
+
+    data.frame(
+      source_updated_at = source_update,
+      fetched_at = FETCHED_AT,
+      location = LOCATION,
+      district = DISTRICT,
+      dico = DICO,
+      global_id_local = GLOBAL_ID_LOCAL,
+      target_date = as.character(target_date),
+      tmax_c = format_temp(tmax),
+      tmax_source = source,
+      normal_period = HEAT_WAVE_NORMAL_PERIOD,
+      normal_station = HEAT_WAVE_NORMAL_STATION,
+      normal_tmax_c = format_temp(normal),
+      threshold_c = format_temp(threshold),
+      exceeds_threshold = ifelse(
+        is.na(tmax) || is.na(threshold),
+        "",
+        as.character(exceeds)
+      ),
+      available_window_days = as.character(available_window_days),
+      consecutive_exceedance_days = as.character(consecutive_days),
+      heat_wave_6day = as.character(isTRUE(heat_wave)),
+      forecast_in_6day_window = as.character(isTRUE(forecast_heat_wave)),
+      pre_heat_wave_5day = as.character(isTRUE(pre_heat_wave)),
+      forecast_in_5day_window = as.character(isTRUE(forecast_pre_heat_wave)),
+      heat_wave_window_start = heat_start,
+      heat_wave_window_end = heat_end,
+      pre_heat_wave_window_start = pre_start,
+      pre_heat_wave_window_end = pre_end,
+      heat_wave_status = status,
+      heat_wave_level = heat_wave_level(status),
+      missing_inputs = heat_wave_missing_inputs(
+        tmax,
+        threshold,
+        available_window_days,
+        exceeds
+      ),
+      recommendation_summary = heat_wave_recommendation_summary(status),
+      source = paste(
+        "IPMA heat wave definition using observed IPMA temperatures,",
+        "IPMA Matosinhos forecasts and IPMA 1991-2020 Porto/Pedras Rubras normal"
+      ),
+      stringsAsFactors = FALSE
+    )
+  })
+
+  heat_waves <- bind_rows(rows)
+  heat_waves[] <- lapply(heat_waves, as.character)
+  heat_waves[, HEAT_WAVE_COLUMNS]
+}
+
+write_heat_waves <- function(new_data) {
+  existing <- read_existing(HEAT_WAVE_PATH, HEAT_WAVE_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    HEAT_WAVE_COLUMNS,
+    HEAT_WAVE_KEY_COLUMNS,
+    setdiff(HEAT_WAVE_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, target_date) %>%
+    distinct(across(all_of(HEAT_WAVE_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, HEAT_WAVE_PATH, na = "")
+
+  latest_update <- latest_source_update(combined)
+  latest <- combined[combined$source_updated_at == latest_update, , drop = FALSE]
+  write_csv(latest, HEAT_WAVE_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
 weather_warning_level <- function(color) {
   color <- tolower(as_text(color))
   switch(
@@ -1843,6 +2251,198 @@ build_uv_daily_section <- function(rows, report_date) {
   )
 }
 
+bool_label <- function(value) {
+  value <- as_text(value)
+  if (value == "TRUE") {
+    return("sim")
+  }
+  if (value == "FALSE") {
+    return("não")
+  }
+
+  "sem dados"
+}
+
+tmax_source_label <- function(value) {
+  value <- as_text(value)
+  if (value == "observed") {
+    return("observada")
+  }
+  if (value == "forecast") {
+    return("prevista")
+  }
+
+  "sem dados"
+}
+
+heat_wave_rows_for_report <- function(heat_waves, report_date) {
+  heat_dates <- as.Date(heat_waves$target_date)
+  report_date_value <- as.Date(report_date)
+  selected <- heat_waves[
+    !is.na(heat_dates) & heat_dates >= report_date_value,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(selected) == 0) {
+    selected <- heat_waves
+  }
+
+  selected %>%
+    mutate(heat_wave_level_num = to_num(heat_wave_level)) %>%
+    arrange(target_date, desc(heat_wave_level_num)) %>%
+    select(all_of(HEAT_WAVE_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+heat_wave_window_text <- function(row) {
+  heat_start <- as_text(row$heat_wave_window_start)
+  heat_end <- as_text(row$heat_wave_window_end)
+  pre_start <- as_text(row$pre_heat_wave_window_start)
+  pre_end <- as_text(row$pre_heat_wave_window_end)
+
+  if (heat_start != "" && heat_end != "") {
+    return(paste0("6 dias: ", heat_start, " a ", heat_end))
+  }
+
+  if (pre_start != "" && pre_end != "") {
+    return(paste0("5 dias: ", pre_start, " a ", pre_end))
+  }
+
+  paste0(as_text(row$consecutive_exceedance_days), " dia(s)")
+}
+
+heat_wave_table_lines <- function(rows) {
+  if (nrow(rows) == 0) {
+    return("Sem dados de onda de calor no último snapshot.")
+  }
+
+  c(
+    "| Data | Tmax | Limiar | Excede | Sequência | Estado |",
+    "|---|---:|---:|---|---|---|",
+    vapply(seq_len(nrow(rows)), function(i) {
+      row <- rows[i, , drop = FALSE]
+      paste0(
+        "| ",
+        as_text(row$target_date),
+        " | ",
+        display_temp(row$tmax_c),
+        " ºC (",
+        tmax_source_label(row$tmax_source),
+        ") | ",
+        display_temp(row$threshold_c),
+        " ºC | ",
+        bool_label(row$exceeds_threshold),
+        " | ",
+        heat_wave_window_text(row),
+        " | ",
+        as_text(row$heat_wave_status),
+        " |"
+      )
+    }, character(1))
+  )
+}
+
+highest_heat_wave_row <- function(rows) {
+  rows %>%
+    mutate(heat_wave_level_num = to_num(heat_wave_level)) %>%
+    arrange(desc(heat_wave_level_num), target_date) %>%
+    slice(1) %>%
+    select(all_of(HEAT_WAVE_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+heat_wave_recommendations <- function(row) {
+  status <- as_text(row$heat_wave_status)
+
+  if (status == "Sem dados") {
+    return(paste(
+      "Comunicação geral: não emitir mensagem automática de onda de calor sem validação manual; faltam dados para aplicar o critério climatológico.",
+      "Grupos vulneráveis: manter vigilância de rotina em pessoas idosas, crianças, grávidas, pessoas com doença crónica, pessoas isoladas e trabalhadores no exterior; confirmar a previsão IPMA antes de escalar medidas.",
+      "Estabelecimentos: manter planos de calor disponíveis, mas sem ativação automática por este indicador enquanto os dados estiverem incompletos.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (status == "Sem critério") {
+    return(paste(
+      "Comunicação geral: sem critério de onda de calor no horizonte disponível. Manter vigilância, hidratação regular e consulta das atualizações IPMA, sobretudo se existirem outros alertas de temperatura.",
+      "Grupos vulneráveis: manter cuidados proporcionais à temperatura prevista e atenção a sintomas em pessoas idosas, crianças, grávidas, pessoas com doença crónica ou que vivam isoladas.",
+      "Estabelecimentos: manter acesso a água, sombra e espaços frescos; rever horários de atividades exteriores se a previsão de temperatura subir.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (status == "Sinal preventivo de 5 dias") {
+    return(paste(
+      "Comunicação geral: sinal preventivo de calor persistente. Comunicar de forma prudente que há vários dias previstos acima do limiar, reforçando hidratação, procura de locais frescos e redução de esforço físico nas horas de maior calor.",
+      "Grupos vulneráveis: antecipar contacto com pessoas idosas ou isoladas, garantir água disponível, rever medicação sensível ao calor com profissional de saúde quando aplicável e evitar saídas prolongadas entre as 11h e as 17h.",
+      "Estabelecimentos: preparar planos de contingência, confirmar zonas de sombra/arrefecimento, ajustar passeios, terapias e atividade física para manhã cedo ou espaços interiores, e acompanhar novas previsões.",
+      sep = "\n\n"
+    ))
+  }
+
+  general <- if (status == "Possível Onda de Calor") {
+    "Comunicação geral: possível onda de calor com base em valores observados e previstos. Reforçar mensagem de prevenção: beber água mesmo sem sede, procurar ambientes frescos ou climatizados, evitar sol direto e esforço físico no exterior nas horas de maior calor, e acompanhar atualizações IPMA."
+  } else {
+    "Comunicação geral: onda de calor em curso/confirmada pelo critério climatológico. Ativar comunicação de alerta: hidratação frequente, refeições leves, permanência em locais frescos, evitar exposição direta ao sol e esforço físico nas horas de maior calor, e procurar ajuda em caso de sintomas."
+  }
+
+  vulnerable <- paste(
+    "Grupos vulneráveis: crianças, pessoas idosas, grávidas, pessoas com doença cardiovascular, respiratória, renal, diabetes, problemas de saúde mental, pessoas acamadas ou isoladas e trabalhadores no exterior devem ser acompanhados de forma ativa.",
+    "Garantir água, ambiente fresco pelo menos 2 a 3 horas por dia, roupa leve, vigilância de sinais de desidratação/exaustão e contacto com SNS 24 (808 24 24 24) ou 112 em sinais graves."
+  )
+
+  establishments <- paste(
+    "Estabelecimentos: condicionar ou substituir atividades físicas intensas ao ar livre, deslocar atividades inevitáveis para manhã cedo ou fim do dia, assegurar sombra, água, pausas e arrefecimento dos espaços.",
+    "Reforçar chamadas/contactos com cuidadores quando aplicável e ter procedimento claro para sintomas de exaustão pelo calor ou agravamento de doença crónica."
+  )
+
+  paste(general, vulnerable, establishments, sep = "\n\n")
+}
+
+build_heat_wave_daily_section <- function(rows, report_date) {
+  source_update <- latest_source_update(rows)
+  if (source_update == "") {
+    source_update <- as_text(rows$source_updated_at)
+  }
+
+  recommendation_row <- highest_heat_wave_row(rows)
+
+  c(
+    "<!-- onda-calor:start -->",
+    paste0("## Onda de Calor - previsões disponíveis em ", report_date),
+    "",
+    paste0(
+      "Critério IPMA: pelo menos 6 dias consecutivos com temperatura máxima diária superior em 5 ºC à normal mensal. ",
+      "Normal usada: ",
+      HEAT_WAVE_NORMAL_STATION,
+      " (",
+      HEAT_WAVE_NORMAL_PERIOD,
+      "). Atualização IPMA: ",
+      source_update,
+      " UTC."
+    ),
+    "",
+    heat_wave_table_lines(rows),
+    "",
+    paste0(
+      "Estado mais exigente no período: ",
+      as_text(recommendation_row$heat_wave_status),
+      " em ",
+      as_text(recommendation_row$target_date),
+      ". As recomendações abaixo seguem este estado."
+    ),
+    "",
+    heat_wave_recommendations(recommendation_row),
+    "",
+    "Fontes de apoio para definição e recomendações de onda de calor:",
+    "",
+    HEAT_WAVE_SOURCE_LINKS,
+    "<!-- onda-calor:end -->"
+  )
+}
+
 alert_rows_for_report <- function(alerts, report_date) {
   alert_dates <- as.Date(alerts$target_date)
   end_dates <- as.Date(substr(alerts$end_time, 1, 10))
@@ -2126,6 +2726,32 @@ replace_marked_section <- function(existing, section, marker) {
   c(existing, "", section)
 }
 
+replace_marked_section_after <- function(existing, section, marker, anchor_marker) {
+  start_marker <- paste0("<!-- ", marker, ":start -->")
+  end_marker <- paste0("<!-- ", marker, ":end -->")
+  start <- which(existing == start_marker)
+  end <- which(existing == end_marker)
+
+  if (length(start) > 0 && length(end) > 0 && end[1] > start[1]) {
+    before <- if (start[1] > 1) existing[seq_len(start[1] - 1)] else character()
+    after <- if (end[1] < length(existing)) existing[(end[1] + 1):length(existing)] else character()
+    existing <- c(before, after)
+  }
+
+  anchor_end <- which(existing == paste0("<!-- ", anchor_marker, ":end -->"))
+  if (length(anchor_end) > 0) {
+    before <- existing[seq_len(anchor_end[1])]
+    after <- if (anchor_end[1] < length(existing)) {
+      existing[(anchor_end[1] + 1):length(existing)]
+    } else {
+      character()
+    }
+    return(c(before, "", section, after))
+  }
+
+  replace_marked_section(existing, section, marker)
+}
+
 replace_managed_section <- function(existing, section) {
   replace_marked_section(existing, section, "temperatura-dsp")
 }
@@ -2142,11 +2768,11 @@ update_daily_temperature_report <- function(alerts) {
   }
   if (nrow(selected) == 0) {
     selected <- alerts[1, , drop = FALSE]
+    report_date <- as_text(selected$target_date)
   }
 
-  target_report_date <- as_text(selected$target_date)
   dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
-  report_path <- file.path(DAILY_DIR, paste0(target_report_date, ".md"))
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
 
   if (file.exists(report_path)) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
@@ -2154,13 +2780,50 @@ update_daily_temperature_report <- function(alerts) {
     existing <- c(
       paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
       "",
-      paste0("Ficheiro diário: ", target_report_date),
+      paste0("Ficheiro diário: ", report_date),
       ""
     )
   }
 
   section <- build_temperature_daily_section(selected[1, , drop = FALSE])
   updated <- replace_managed_section(existing, section)
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
+update_daily_heat_wave_report <- function(heat_waves) {
+  if (nrow(heat_waves) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  heat_dates <- as.Date(heat_waves$target_date)
+  if (!any(!is.na(heat_dates) & heat_dates >= as.Date(report_date))) {
+    report_date <- as_text(heat_waves$target_date[1])
+  }
+  selected <- heat_wave_rows_for_report(heat_waves, report_date)
+
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", report_date),
+      ""
+    )
+  }
+
+  section <- build_heat_wave_daily_section(selected, report_date)
+  updated <- replace_marked_section_after(
+    existing,
+    section,
+    "onda-calor",
+    "temperatura-dsp"
+  )
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -2260,6 +2923,13 @@ temperature_alerts_data <- build_temperature_alerts(
 temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
 daily_temperature_report_path <- update_daily_temperature_report(temperature_alerts_result$latest)
 
+heat_wave_data <- build_heat_waves(
+  temperature_history,
+  forecast_result$latest
+)
+heat_wave_result <- write_heat_waves(heat_wave_data)
+daily_heat_wave_report_path <- update_daily_heat_wave_report(heat_wave_result$latest)
+
 uv_index_data <- build_uv_index(forecast_result$latest)
 uv_index_result <- write_uv_index(uv_index_data)
 daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
@@ -2275,6 +2945,7 @@ message(sprintf(
     "%d temperature row(s) prepared; temperature history has %d row(s).",
     "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
     "%d temperature alert row(s) calculated; alert archive has %d row(s); temperature report: %s.",
+    "%d heat wave row(s) calculated; heat wave archive has %d row(s); heat wave report: %s.",
     "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
     "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
   ),
@@ -2290,6 +2961,9 @@ message(sprintf(
   nrow(temperature_alerts_data),
   nrow(temperature_alerts_result$combined),
   daily_temperature_report_path,
+  nrow(heat_wave_data),
+  nrow(heat_wave_result$combined),
+  daily_heat_wave_report_path,
   nrow(uv_index_data),
   nrow(uv_index_result$combined),
   daily_uv_report_path,
