@@ -22,6 +22,8 @@ TEMPERATURE_ALERTS_LATEST_PATH <- file.path(
 )
 UV_INDEX_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index.csv")
 UV_INDEX_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index_latest.csv")
+IPMA_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts.csv")
+IPMA_ALERTS_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts_latest.csv")
 DAILY_DIR <- "daily"
 
 LOCAL_TZ <- "Europe/Lisbon"
@@ -33,6 +35,8 @@ DICO <- "1308"
 GLOBAL_ID_LOCAL <- "1130800"
 LATITUDE <- "41.1805"
 LONGITUDE <- "-8.6810"
+WARNING_AREA_ID <- "PTO"
+WARNING_AREA_NAME <- "Porto"
 
 IPMA_BASE <- "https://api.ipma.pt"
 TMIN_URL <- paste0(
@@ -47,6 +51,16 @@ FORECAST_URL <- paste0(IPMA_BASE, "/public-data/forecast/aggregate/1130800.json"
 STATION_OBSERVATIONS_URL <- paste0(
   IPMA_BASE,
   "/open-data/observation/meteorology/stations/observations.json"
+)
+WEATHER_WARNINGS_URL <- paste0(
+  IPMA_BASE,
+  "/open-data/forecast/warnings/warnings_www.json"
+)
+FIRE_RISK_URLS <- paste0(
+  IPMA_BASE,
+  "/open-data/forecast/meteorology/rcm/rcm-d",
+  0:1,
+  ".json"
 )
 
 FALLBACK_STATIONS <- data.frame(
@@ -173,6 +187,27 @@ UV_INDEX_COLUMNS <- c(
   "source"
 )
 
+IPMA_ALERT_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "dico",
+  "global_id_local",
+  "alert_source",
+  "alert_scope",
+  "target_date",
+  "start_time",
+  "end_time",
+  "alert_type",
+  "alert_level",
+  "alert_level_order",
+  "alert_color",
+  "description",
+  "recommendation_summary",
+  "source"
+)
+
 TEMPERATURE_KEY_COLUMNS <- "date"
 FORECAST_KEY_COLUMNS <- c(
   "source_updated_at",
@@ -184,6 +219,15 @@ STATION_OBSERVATION_KEY_COLUMNS <- c("datetime_utc", "station_id")
 STATION_DAILY_TEMPERATURE_KEY_COLUMNS <- "date"
 TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
 UV_INDEX_KEY_COLUMNS <- c("source_updated_at", "target_date")
+IPMA_ALERT_KEY_COLUMNS <- c(
+  "source_updated_at",
+  "alert_source",
+  "alert_scope",
+  "target_date",
+  "start_time",
+  "end_time",
+  "alert_type"
+)
 
 HEAT_LEVELS <- c(
   "Fora de época" = -2,
@@ -215,6 +259,14 @@ UV_SOURCE_LINKS <- c(
   "- OMS, índice UV e recomendações de proteção: https://www.who.int/news-room/questions-and-answers/item/radiation-the-ultraviolet-%28uv%29-index",
   "- OMS, radiação ultravioleta e proteção: https://www.who.int/news-room/fact-sheets/detail/ultraviolet-radiation",
   "- EPA, escala do Índice UV conforme orientações internacionais: https://www.epa.gov/sunsafety/uv-index-scale-0"
+)
+
+IPMA_ALERT_SOURCE_LINKS <- c(
+  "- IPMA, API de avisos meteorológicos e risco de incêndio: https://api.ipma.pt/",
+  "- IPMA, guia dos avisos meteorológicos: https://www.ipma.pt/pt/enciclopedia/otempo/sam/index.html",
+  "- IPMA, perigo de incêndio rural: https://www.ipma.pt/pt/enciclopedia/otempo/risco.incendio/index.jsp?page=pirdl.xml",
+  "- ANEPC, avisos à população e medidas preventivas: https://prociv.gov.pt/pt/avisos-a-populacao/",
+  "- ANEPC, perigo de incêndio rural - medidas preventivas: https://prociv.gov.pt/pt/noticias/20082025-perigo-de-incendio-rural-medidas-preventivas/"
 )
 
 as_text <- function(x) {
@@ -311,7 +363,11 @@ read_existing <- function(path, columns) {
   }
 
   existing <- as.data.frame(existing[, columns], stringsAsFactors = FALSE)
-  existing[] <- lapply(existing, as.character)
+  existing[] <- lapply(existing, function(column) {
+    column <- as.character(column)
+    column[is.na(column)] <- ""
+    column
+  })
   existing
 }
 
@@ -1233,6 +1289,202 @@ write_uv_index <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+weather_warning_level <- function(color) {
+  color <- tolower(as_text(color))
+  switch(
+    color,
+    "green" = list(label = "Verde", order = "0", color = "Verde"),
+    "yellow" = list(label = "Amarelo", order = "1", color = "Amarelo"),
+    "orange" = list(label = "Laranja", order = "2", color = "Laranja"),
+    "red" = list(label = "Vermelho", order = "3", color = "Vermelho"),
+    list(label = "Sem dados", order = "-1", color = color)
+  )
+}
+
+fire_risk_level <- function(rcm) {
+  code <- as_text(rcm)
+  switch(
+    code,
+    "1" = list(label = "Risco reduzido", order = "0", color = "Verde"),
+    "2" = list(label = "Risco moderado", order = "1", color = "Amarelo"),
+    "3" = list(label = "Risco elevado", order = "2", color = "Laranja"),
+    "4" = list(label = "Risco muito elevado", order = "3", color = "Vermelho"),
+    "5" = list(label = "Risco máximo", order = "4", color = "Vermelho escuro"),
+    list(label = "Sem dados", order = "-1", color = "")
+  )
+}
+
+weather_warning_summary <- function(alert_type, level) {
+  if (level == "Verde") {
+    return("Sem aviso meteorológico ativo acima de Verde para este parâmetro.")
+  }
+
+  base <- switch(
+    level,
+    "Amarelo" = "Situação de risco para atividades expostas à meteorologia; acompanhar atualizações IPMA e adaptar atividades sensíveis.",
+    "Laranja" = "Situação de risco moderado a elevado; reforçar comunicação, condicionar atividades exteriores e seguir orientações da ANEPC.",
+    "Vermelho" = "Situação de risco extremo; evitar exposição desnecessária, ativar planos de contingência e seguir orientações da ANEPC.",
+    "Confirmar manualmente o aviso antes de comunicar."
+  )
+
+  specific <- switch(
+    alert_type,
+    "Agitação Marítima" = "Evitar molhes, arribas, praias e atividades náuticas expostas; reforçar vigilância junto à frente marítima.",
+    "Precipitação" = "Prevenir inundações urbanas, limpar escoamentos e evitar atravessar zonas inundadas.",
+    "Trovoada" = "Evitar espaços abertos, árvores isoladas, estruturas metálicas e atividades aquáticas durante trovoada.",
+    "Vento" = "Fixar objetos soltos, evitar zonas arborizadas, andaimes e estruturas temporárias.",
+    "Nevoeiro" = "Reduzir deslocações não essenciais e reforçar prudência rodoviária.",
+    "Neve" = "Condicionar deslocações e atividades em zonas afetadas por neve ou gelo.",
+    "Tempo Quente" = "Aplicar medidas de calor: hidratação, sombra, redução de esforço e proteção de grupos vulneráveis.",
+    "Tempo Frio" = "Aplicar medidas de frio: aquecimento seguro, roupa adequada e acompanhamento de pessoas vulneráveis.",
+    ""
+  )
+
+  paste(base, specific)
+}
+
+fire_risk_summary <- function(level) {
+  switch(
+    level,
+    "Risco reduzido" = "Manter vigilância e evitar comportamentos de ignição no espaço rural.",
+    "Risco moderado" = "Evitar fogo e fontes de ignição no exterior; confirmar regras municipais antes de queimas ou trabalhos com faísca.",
+    "Risco elevado" = "Reforçar prevenção: não realizar queimas, fogueiras ou trabalhos que produzam faíscas sem validação/autorização; manter acessos e pontos de água desobstruídos.",
+    "Risco muito elevado" = "Redobrar cuidados e cumprir restrições legais; evitar atividades com fogo, faíscas ou máquinas em espaço rural e preparar resposta rápida a sinais de fumo.",
+    "Risco máximo" = "Evitar qualquer atividade de risco no espaço rural; seguir restrições legais e orientações da Proteção Civil, autarquia e forças de segurança.",
+    "Confirmar manualmente o risco de incêndio antes de comunicar."
+  )
+}
+
+build_weather_warnings <- function() {
+  api_data <- fetch_json(WEATHER_WARNINGS_URL)
+  rows <- lapply(api_data, function(item) {
+    if (field_text(item, "idAreaAviso") != WARNING_AREA_ID) {
+      return(NULL)
+    }
+
+    level <- weather_warning_level(field_text(item, "awarenessLevelID"))
+    alert_type <- field_text(item, "awarenessTypeName")
+    description <- field_text(item, "text")
+    start_time <- field_text(item, "startTime")
+    end_time <- field_text(item, "endTime")
+
+    data.frame(
+      source_updated_at = "",
+      fetched_at = FETCHED_AT,
+      location = LOCATION,
+      district = DISTRICT,
+      dico = DICO,
+      global_id_local = GLOBAL_ID_LOCAL,
+      alert_source = "Avisos meteorológicos",
+      alert_scope = paste0("Distrito do Porto (área de aviso ", WARNING_AREA_ID, ")"),
+      target_date = substr(start_time, 1, 10),
+      start_time = start_time,
+      end_time = end_time,
+      alert_type = alert_type,
+      alert_level = level$label,
+      alert_level_order = level$order,
+      alert_color = level$color,
+      description = description,
+      recommendation_summary = weather_warning_summary(alert_type, level$label),
+      source = "IPMA open-data forecast/warnings/warnings_www.json",
+      stringsAsFactors = FALSE
+    )
+  })
+
+  warnings <- bind_rows(rows)
+  if (nrow(warnings) == 0) {
+    return(empty_frame(IPMA_ALERT_COLUMNS))
+  }
+
+  update <- max(warnings$start_time[warnings$start_time != ""], na.rm = TRUE)
+  warnings$source_updated_at <- update
+  warnings[] <- lapply(warnings, as.character)
+  warnings[, IPMA_ALERT_COLUMNS]
+}
+
+build_fire_risk_day <- function(url) {
+  api_data <- fetch_json(url)
+  local <- api_data$local[[DICO]]
+  if (is.null(local)) {
+    return(empty_frame(IPMA_ALERT_COLUMNS))
+  }
+
+  rcm <- field_text(local$data, "rcm")
+  level <- fire_risk_level(rcm)
+  target_date <- field_text(api_data, "dataPrev")
+  source_update <- field_text(api_data, "fileDate")
+
+  row <- data.frame(
+    source_updated_at = source_update,
+    fetched_at = FETCHED_AT,
+    location = LOCATION,
+    district = DISTRICT,
+    dico = DICO,
+    global_id_local = GLOBAL_ID_LOCAL,
+    alert_source = "Risco de incêndio rural",
+    alert_scope = "Concelho de Matosinhos",
+    target_date = target_date,
+    start_time = target_date,
+    end_time = "",
+    alert_type = "Risco de Incêndio Rural",
+    alert_level = level$label,
+    alert_level_order = level$order,
+    alert_color = level$color,
+    description = paste0("RCM ", rcm, " - ", level$label),
+    recommendation_summary = fire_risk_summary(level$label),
+    source = "IPMA open-data forecast/meteorology/rcm",
+    stringsAsFactors = FALSE
+  )
+
+  row[] <- lapply(row, as.character)
+  row[, IPMA_ALERT_COLUMNS]
+}
+
+build_fire_risk <- function() {
+  bind_rows(lapply(FIRE_RISK_URLS, build_fire_risk_day)) %>%
+    arrange(target_date) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+build_ipma_alerts <- function() {
+  alerts <- bind_rows(build_weather_warnings(), build_fire_risk())
+  if (nrow(alerts) == 0) {
+    return(empty_frame(IPMA_ALERT_COLUMNS))
+  }
+
+  alerts[] <- lapply(alerts, as.character)
+  alerts[, IPMA_ALERT_COLUMNS]
+}
+
+write_ipma_alerts <- function(new_data) {
+  existing <- read_existing(IPMA_ALERTS_PATH, IPMA_ALERT_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    IPMA_ALERT_COLUMNS,
+    IPMA_ALERT_KEY_COLUMNS,
+    setdiff(IPMA_ALERT_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, alert_source, target_date, alert_type) %>%
+    distinct(across(all_of(IPMA_ALERT_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, IPMA_ALERTS_PATH, na = "")
+
+  latest_updates <- combined %>%
+    group_by(alert_source) %>%
+    filter(source_updated_at == max(source_updated_at, na.rm = TRUE)) %>%
+    ungroup() %>%
+    arrange(alert_source, target_date, alert_type) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(latest_updates, IPMA_ALERTS_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest_updates)
+}
+
 temperature_recommendations <- function(row) {
   overall <- as_text(row$overall_temperature_alert)
   tmax_alert <- as_text(row$tmax_alert)
@@ -1591,6 +1843,267 @@ build_uv_daily_section <- function(rows, report_date) {
   )
 }
 
+alert_rows_for_report <- function(alerts, report_date) {
+  alert_dates <- as.Date(alerts$target_date)
+  end_dates <- as.Date(substr(alerts$end_time, 1, 10))
+  report_date_value <- as.Date(report_date)
+  selected <- alerts[
+    (!is.na(end_dates) & end_dates >= report_date_value) |
+      (is.na(end_dates) & (is.na(alert_dates) | alert_dates >= report_date_value)),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(selected) == 0) {
+    selected <- alerts
+  }
+
+  selected %>%
+    mutate(alert_level_order_num = to_num(alert_level_order)) %>%
+    arrange(alert_source, target_date, desc(alert_level_order_num), alert_type) %>%
+    select(all_of(IPMA_ALERT_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+alert_period_text <- function(row) {
+  start_time <- as_text(row$start_time)
+  end_time <- as_text(row$end_time)
+  target_date <- as_text(row$target_date)
+
+  if (end_time != "" && start_time != end_time) {
+    return(paste0(start_time, " a ", end_time))
+  }
+
+  if (start_time != "") {
+    return(start_time)
+  }
+
+  target_date
+}
+
+alert_display_rows <- function(rows) {
+  weather_rows <- rows[rows$alert_source == "Avisos meteorológicos", , drop = FALSE]
+  fire_rows <- rows[rows$alert_source == "Risco de incêndio rural", , drop = FALSE]
+  active_weather_rows <- weather_rows[
+    to_num(weather_rows$alert_level_order) > 0,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(weather_rows) > 0 && nrow(active_weather_rows) == 0) {
+    weather_summary <- weather_rows[1, , drop = FALSE]
+    start_values <- weather_rows$start_time[weather_rows$start_time != ""]
+    end_values <- weather_rows$end_time[weather_rows$end_time != ""]
+    weather_summary$start_time <- if (length(start_values) > 0) min(start_values) else ""
+    weather_summary$end_time <- if (length(end_values) > 0) max(end_values) else ""
+    weather_summary$alert_type <- "Todos os parâmetros meteorológicos"
+    weather_summary$alert_level <- "Verde"
+    weather_summary$alert_level_order <- "0"
+    weather_summary$alert_color <- "Verde"
+    weather_summary$description <- paste0(
+      "Sem avisos meteorológicos ativos acima de Verde para ",
+      WARNING_AREA_NAME,
+      "."
+    )
+    active_weather_rows <- weather_summary
+  }
+
+  bind_rows(active_weather_rows, fire_rows) %>%
+    mutate(alert_level_order_num = to_num(alert_level_order)) %>%
+    arrange(alert_source, target_date, desc(alert_level_order_num), alert_type) %>%
+    select(all_of(IPMA_ALERT_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+alert_table_lines <- function(rows) {
+  display_rows <- alert_display_rows(rows)
+  if (nrow(display_rows) == 0) {
+    return("Sem avisos IPMA disponíveis no último snapshot.")
+  }
+
+  c(
+    "| Fonte | Período/Data | Tipo | Nível | Nota |",
+    "|---|---|---|---|---|",
+    vapply(seq_len(nrow(display_rows)), function(i) {
+      row <- display_rows[i, , drop = FALSE]
+      note <- as_text(row$description)
+      if (note == "") {
+        note <- as_text(row$recommendation_summary)
+      }
+      paste0(
+        "| ",
+        as_text(row$alert_source),
+        " | ",
+        alert_period_text(row),
+        " | ",
+        as_text(row$alert_type),
+        " | ",
+        as_text(row$alert_level),
+        " | ",
+        note,
+        " |"
+      )
+    }, character(1))
+  )
+}
+
+highest_alert_row <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(empty_frame(IPMA_ALERT_COLUMNS))
+  }
+
+  rows %>%
+    mutate(alert_level_order_num = to_num(alert_level_order)) %>%
+    arrange(desc(alert_level_order_num), target_date, alert_source, alert_type) %>%
+    slice(1) %>%
+    select(all_of(IPMA_ALERT_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+alert_specific_measures <- function(rows) {
+  active_weather_types <- unique(rows$alert_type[
+    rows$alert_source == "Avisos meteorológicos" &
+      to_num(rows$alert_level_order) > 0
+  ])
+  measures <- character()
+
+  if ("Agitação Marítima" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Agitação marítima: evitar molhes, praias, arribas e atividades náuticas; reforçar vigilância em passeios junto à frente marítima."
+    )
+  }
+  if ("Precipitação" %in% active_weather_types || "Trovoada" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Precipitação/trovoada: desobstruir escoamentos, evitar atravessar zonas inundadas e suspender atividades exteriores durante trovoada."
+    )
+  }
+  if ("Vento" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Vento: fixar objetos soltos, evitar zonas arborizadas, andaimes e estruturas temporárias."
+    )
+  }
+  if ("Nevoeiro" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Nevoeiro: reduzir deslocações não essenciais e reforçar prudência em transporte de utentes."
+    )
+  }
+  if ("Tempo Quente" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Tempo quente: aplicar medidas de calor, com hidratação, sombra, redução de esforço e vigilância de pessoas vulneráveis."
+    )
+  }
+  if ("Tempo Frio" %in% active_weather_types || "Neve" %in% active_weather_types) {
+    measures <- c(
+      measures,
+      "Tempo frio/neve: garantir aquecimento seguro, roupa adequada e condicionar deslocações se houver gelo ou neve."
+    )
+  }
+
+  fire_rows <- rows[rows$alert_source == "Risco de incêndio rural", , drop = FALSE]
+  if (nrow(fire_rows) > 0) {
+    max_fire <- max(to_num(fire_rows$alert_level_order), na.rm = TRUE)
+    if (!is.na(max_fire) && max_fire >= 3) {
+      measures <- c(
+        measures,
+        "Incêndio rural: em risco muito elevado ou máximo, evitar qualquer atividade com fogo, faíscas ou máquinas no espaço rural e cumprir restrições legais."
+      )
+    } else if (!is.na(max_fire) && max_fire >= 2) {
+      measures <- c(
+        measures,
+        "Incêndio rural: reforçar prevenção, evitar queimas, fogueiras e trabalhos que produzam faíscas sem validação/autorização."
+      )
+    } else {
+      measures <- c(
+        measures,
+        "Incêndio rural: manter vigilância, não abandonar resíduos e evitar fontes de ignição no exterior."
+      )
+    }
+  }
+
+  if (length(measures) == 0) {
+    return("Sem medidas específicas adicionais para além da vigilância habitual.")
+  }
+
+  paste(measures, collapse = "\n\n")
+}
+
+ipma_alert_recommendations <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(paste(
+      "Comunicação geral: não emitir recomendação automática de avisos IPMA sem validação manual; faltam dados do último snapshot.",
+      "Grupos vulneráveis: manter vigilância de rotina e confirmar avisos IPMA/ANEPC antes de adaptar atividades.",
+      "Estabelecimentos: manter planos de contingência disponíveis e aguardar validação manual dos dados.",
+      sep = "\n\n"
+    ))
+  }
+
+  highest <- highest_alert_row(rows)
+  highest_level <- as_text(highest$alert_level)
+  highest_type <- as_text(highest$alert_type)
+  highest_source <- as_text(highest$alert_source)
+  highest_order <- to_num(highest$alert_level_order)
+
+  if (is.na(highest_order) || highest_order <= 0) {
+    general <- "Comunicação geral: sem avisos meteorológicos ativos acima de Verde e com risco operacional baixo no último snapshot IPMA; manter vigilância e consultar atualizações."
+    vulnerable <- "Grupos vulneráveis: manter rotinas habituais, com atenção a alterações meteorológicas locais e a indicações IPMA/ANEPC."
+    establishments <- "Estabelecimentos: manter atividades previstas, garantindo canais de comunicação e planos de contingência acessíveis."
+  } else {
+    general <- paste0(
+      "Comunicação geral: existe alerta IPMA relevante no período analisado (",
+      highest_source,
+      " - ",
+      highest_type,
+      ": ",
+      highest_level,
+      "). Comunicar o nível, período e fenómeno, acompanhar atualizações e reduzir exposição em atividades dependentes da meteorologia."
+    )
+    vulnerable <- "Grupos vulneráveis: antecipar contacto com pessoas idosas, crianças, pessoas com doença crónica, pessoas isoladas e pessoas com mobilidade reduzida; adaptar deslocações e atividades exteriores ao nível de aviso."
+    establishments <- "Estabelecimentos: rever planos de contingência, condicionar atividades exteriores quando aplicável, confirmar equipas/contactos e seguir orientações da Proteção Civil, autarquia e forças de segurança."
+  }
+
+  paste(
+    general,
+    vulnerable,
+    establishments,
+    alert_specific_measures(rows),
+    sep = "\n\n"
+  )
+}
+
+build_ipma_alerts_daily_section <- function(rows, report_date) {
+  source_updates <- unique(rows$source_updated_at[rows$source_updated_at != ""])
+  source_update_text <- if (length(source_updates) == 0) {
+    FETCHED_AT
+  } else {
+    paste(sort(source_updates), collapse = "; ")
+  }
+
+  c(
+    "<!-- ipma-alerts:start -->",
+    paste0("## Avisos IPMA - ", report_date),
+    "",
+    paste0(
+      "Fonte dos valores: IPMA. Atualizações de origem consideradas: ",
+      source_update_text,
+      "."
+    ),
+    "",
+    alert_table_lines(rows),
+    "",
+    ipma_alert_recommendations(rows),
+    "",
+    "Fontes de apoio para recomendações de avisos IPMA:",
+    "",
+    IPMA_ALERT_SOURCE_LINKS,
+    "<!-- ipma-alerts:end -->"
+  )
+}
+
 replace_marked_section <- function(existing, section, marker) {
   start_marker <- paste0("<!-- ", marker, ":start -->")
   end_marker <- paste0("<!-- ", marker, ":end -->")
@@ -1684,6 +2197,43 @@ update_daily_uv_report <- function(uv_index) {
   report_path
 }
 
+update_daily_ipma_alerts_report <- function(alerts) {
+  if (nrow(alerts) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  alert_dates <- as.Date(alerts$target_date)
+  end_dates <- as.Date(substr(alerts$end_time, 1, 10))
+  has_relevant_alert <- any(
+    (!is.na(end_dates) & end_dates >= as.Date(report_date)) |
+      (is.na(end_dates) & (is.na(alert_dates) | alert_dates >= as.Date(report_date)))
+  )
+  if (!has_relevant_alert) {
+    report_date <- as_text(alerts$target_date[1])
+  }
+  selected <- alert_rows_for_report(alerts, report_date)
+
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", report_date),
+      ""
+    )
+  }
+
+  section <- build_ipma_alerts_daily_section(selected, report_date)
+  updated <- replace_marked_section(existing, section, "ipma-alerts")
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 
 climate_temperature_data <- build_temperature_history()
@@ -1714,6 +2264,10 @@ uv_index_data <- build_uv_index(forecast_result$latest)
 uv_index_result <- write_uv_index(uv_index_data)
 daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
 
+ipma_alerts_data <- build_ipma_alerts()
+ipma_alerts_result <- write_ipma_alerts(ipma_alerts_data)
+daily_ipma_alerts_report_path <- update_daily_ipma_alerts_report(ipma_alerts_result$latest)
+
 message(sprintf(
   paste(
     "OK - %d climate temperature row(s) fetched; %d station observation row(s) fetched.",
@@ -1721,7 +2275,8 @@ message(sprintf(
     "%d temperature row(s) prepared; temperature history has %d row(s).",
     "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
     "%d temperature alert row(s) calculated; alert archive has %d row(s); temperature report: %s.",
-    "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s."
+    "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
+    "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
   ),
   nrow(climate_temperature_data),
   nrow(station_observations_data),
@@ -1737,5 +2292,8 @@ message(sprintf(
   daily_temperature_report_path,
   nrow(uv_index_data),
   nrow(uv_index_result$combined),
-  daily_uv_report_path
+  daily_uv_report_path,
+  nrow(ipma_alerts_data),
+  nrow(ipma_alerts_result$combined),
+  daily_ipma_alerts_report_path
 ))
