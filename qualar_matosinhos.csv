@@ -1,4 +1,5 @@
 location,latitude,longitude,forecast_date,qualar_index,source,responsible_pollutants,no2_ug_m3,o3_ug_m3,pm10_ug_m3,pm25_ug_m3,no2_alert,o3_alert,pm10_alert,pm25_alert,overall_alert_level,overall_alert_label,alert_drivers,fetched_at
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-05,3,CAMS,O3=104,18,104,10,6,Verde (0),Amarelo (1),Verde (0),Verde (0),1,Amarelo (1),O3 104 µg/m³ - Amarelo (1),2026-05-05T14:47:17Z
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-06,3,CAMS,O3=107,22,107,13,9,Verde (0),Amarelo (1),Verde (0),Verde (0),1,Amarelo (1),O3 107 µg/m³ - Amarelo (1),2026-05-06T09:56:06Z
-"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-07,3,CAMS,O3=103,26,103,15,11,Verde (0),Amarelo (1),Verde (0),Verde (0),1,Amarelo (1),O3 103 µg/m³ - Amarelo (1),2026-05-06T09:56:06Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-07,3,CAMS,O3=107,23,107,16,12,Verde (0),Amarelo (1),Verde (0),Verde (0),1,Amarelo (1),O3 107 µg/m³ - Amarelo (1),2026-05-07T09:17:34Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-05-08,2,CAMS,O3=100,24,100,12,9,Verde (0),Amarelo (1),Verde (0),Verde (0),1,Amarelo (1),O3 100 µg/m³ - Amarelo (1),2026-05-07T09:17:34Z

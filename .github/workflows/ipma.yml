@@ -35,7 +35,12 @@ jobs:
         shell: Rscript {0}
 
       - name: Correr script IPMA
-        run: Rscript fetch_ipma.R
+        run: |
+          if [ "${{ github.event.schedule }}" = "15 14 * * *" ]; then
+            Rscript fetch_ipma.R light
+          else
+            Rscript fetch_ipma.R full
+          fi
 
       - name: Commit dos dados IPMA se mudaram
         run: |

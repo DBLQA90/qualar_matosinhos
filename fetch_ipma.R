@@ -24,6 +24,11 @@ UV_INDEX_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index.csv")
 UV_INDEX_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_uv_index_latest.csv")
 HEAT_WAVE_PATH <- file.path(DATA_DIR, "ipma_matosinhos_heat_waves.csv")
 HEAT_WAVE_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_heat_waves_latest.csv")
+THERMAL_STRESS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_thermal_stress.csv")
+THERMAL_STRESS_LATEST_PATH <- file.path(
+  DATA_DIR,
+  "ipma_matosinhos_thermal_stress_latest.csv"
+)
 IPMA_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts.csv")
 IPMA_ALERTS_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts_latest.csv")
 DAILY_DIR <- "daily"
@@ -221,6 +226,26 @@ HEAT_WAVE_COLUMNS <- c(
   "source"
 )
 
+THERMAL_STRESS_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "global_id_local",
+  "target_date",
+  "forecast_datetime_utc",
+  "forecast_datetime_local",
+  "period_hours",
+  "utci_c",
+  "thermal_level",
+  "thermal_level_order",
+  "thermal_color",
+  "thermal_stress_type",
+  "protection_required",
+  "recommendation_summary",
+  "source"
+)
+
 IPMA_ALERT_COLUMNS <- c(
   "source_updated_at",
   "fetched_at",
@@ -254,6 +279,11 @@ STATION_DAILY_TEMPERATURE_KEY_COLUMNS <- "date"
 TEMPERATURE_ALERT_KEY_COLUMNS <- c("source_updated_at", "target_date")
 UV_INDEX_KEY_COLUMNS <- c("source_updated_at", "target_date")
 HEAT_WAVE_KEY_COLUMNS <- c("source_updated_at", "target_date")
+THERMAL_STRESS_KEY_COLUMNS <- c(
+  "source_updated_at",
+  "forecast_datetime_utc",
+  "period_hours"
+)
 IPMA_ALERT_KEY_COLUMNS <- c(
   "source_updated_at",
   "alert_source",
@@ -328,6 +358,29 @@ HEAT_WAVE_SOURCE_LINKS <- c(
   "- IPMA, Normal Climatológica 1991-2020 - Porto/Pedras Rubras: https://www.ipma.pt/opencms/bin/file.data/climate-normal/cn_91-20_PORTO_PEDRAS_RUBRAS.pdf",
   "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
   "- DGS, calor - perguntas e respostas: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/calor/perguntas-e-respostas.aspx"
+)
+
+THERMAL_STRESS_LEVELS <- c(
+  "Sem dados" = -1,
+  "Sem stress térmico" = 0,
+  "Stress por frio ligeiro" = 1,
+  "Stress por calor moderado" = 1,
+  "Stress por frio moderado" = 2,
+  "Stress por calor elevado" = 2,
+  "Stress por frio elevado" = 3,
+  "Stress por calor muito elevado" = 3,
+  "Stress por frio muito elevado" = 4,
+  "Stress por calor extremo" = 4,
+  "Stress por frio extremo" = 5
+)
+
+THERMAL_STRESS_SOURCE_LINKS <- c(
+  "- IPMA, UTCI - Índice Climático Térmico Universal: https://www.ipma.pt/pt/enciclopedia/amb.atmosfera/index.bioclima/index.html?page=utci.xml",
+  "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+  "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+  "- DGS, calor - recomendações à população: https://www.dgs.pt/em-destaque/recomendacoes-a-populacao-calor.aspx",
+  "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx",
+  "- DGS, frio - grupos vulneráveis: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/frio/recomendacoes-para-os-grupos-vulneraveis.aspx"
 )
 
 IPMA_ALERT_SOURCE_LINKS <- c(
@@ -1697,6 +1750,229 @@ write_heat_waves <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+thermal_stress_level <- function(level) {
+  if (!level %in% names(THERMAL_STRESS_LEVELS)) {
+    return("")
+  }
+
+  as.character(THERMAL_STRESS_LEVELS[[level]])
+}
+
+classify_thermal_stress <- function(value) {
+  utci <- to_num(value)
+  if (is.na(utci)) {
+    return(list(
+      level = "Sem dados",
+      order = thermal_stress_level("Sem dados"),
+      color = "",
+      stress_type = "Sem dados",
+      protection = "Sem dados"
+    ))
+  }
+
+  if (utci > 46) {
+    return(list(
+      level = "Stress por calor extremo",
+      order = thermal_stress_level("Stress por calor extremo"),
+      color = "Vermelho escuro",
+      stress_type = "Calor",
+      protection = "Evitar exposição"
+    ))
+  }
+
+  if (utci >= 38) {
+    return(list(
+      level = "Stress por calor muito elevado",
+      order = thermal_stress_level("Stress por calor muito elevado"),
+      color = "Vermelho",
+      stress_type = "Calor",
+      protection = "Proteção muito reforçada"
+    ))
+  }
+
+  if (utci >= 32) {
+    return(list(
+      level = "Stress por calor elevado",
+      order = thermal_stress_level("Stress por calor elevado"),
+      color = "Laranja",
+      stress_type = "Calor",
+      protection = "Proteção reforçada"
+    ))
+  }
+
+  if (utci >= 26) {
+    return(list(
+      level = "Stress por calor moderado",
+      order = thermal_stress_level("Stress por calor moderado"),
+      color = "Amarelo",
+      stress_type = "Calor",
+      protection = "Proteção necessária"
+    ))
+  }
+
+  if (utci >= 9) {
+    return(list(
+      level = "Sem stress térmico",
+      order = thermal_stress_level("Sem stress térmico"),
+      color = "Verde",
+      stress_type = "Sem stress térmico",
+      protection = "Vigilância habitual"
+    ))
+  }
+
+  if (utci >= 0) {
+    return(list(
+      level = "Stress por frio ligeiro",
+      order = thermal_stress_level("Stress por frio ligeiro"),
+      color = "Azul claro",
+      stress_type = "Frio",
+      protection = "Proteção básica contra frio"
+    ))
+  }
+
+  if (utci >= -13) {
+    return(list(
+      level = "Stress por frio moderado",
+      order = thermal_stress_level("Stress por frio moderado"),
+      color = "Azul",
+      stress_type = "Frio",
+      protection = "Proteção contra frio"
+    ))
+  }
+
+  if (utci >= -27) {
+    return(list(
+      level = "Stress por frio elevado",
+      order = thermal_stress_level("Stress por frio elevado"),
+      color = "Azul escuro",
+      stress_type = "Frio",
+      protection = "Proteção reforçada contra frio"
+    ))
+  }
+
+  if (utci >= -40) {
+    return(list(
+      level = "Stress por frio muito elevado",
+      order = thermal_stress_level("Stress por frio muito elevado"),
+      color = "Roxo",
+      stress_type = "Frio",
+      protection = "Evitar exposição prolongada"
+    ))
+  }
+
+  list(
+    level = "Stress por frio extremo",
+    order = thermal_stress_level("Stress por frio extremo"),
+    color = "Roxo escuro",
+    stress_type = "Frio",
+    protection = "Evitar exposição"
+  )
+}
+
+thermal_stress_recommendation_summary <- function(level) {
+  switch(
+    level,
+    "Sem dados" = "Sem dados UTCI para emitir recomendação automática de stress térmico.",
+    "Sem stress térmico" = "Sem stress térmico relevante; manter vigilância habitual.",
+    "Stress por calor moderado" = "Stress por calor moderado; reforçar hidratação, sombra e pausas em atividades exteriores.",
+    "Stress por calor elevado" = "Stress por calor elevado; reduzir exposição nas horas de pico e adaptar esforço físico no exterior.",
+    "Stress por calor muito elevado" = "Stress por calor muito elevado; evitar exposição prolongada, esforço intenso e proteger grupos vulneráveis.",
+    "Stress por calor extremo" = "Stress por calor extremo; evitar exposição exterior não essencial e ativar medidas de contingência.",
+    "Stress por frio ligeiro" = "Stress por frio ligeiro; usar proteção básica e vigiar pessoas vulneráveis.",
+    "Stress por frio moderado" = "Stress por frio moderado; limitar exposição, usar camadas de roupa e manter espaços aquecidos com segurança.",
+    "Stress por frio elevado" = "Stress por frio elevado; reduzir atividades exteriores e reforçar acompanhamento de grupos vulneráveis.",
+    "Stress por frio muito elevado" = "Stress por frio muito elevado; evitar exposição prolongada e ativar medidas de proteção contra frio.",
+    "Stress por frio extremo" = "Stress por frio extremo; evitar exposição exterior não essencial e ativar medidas de emergência para frio.",
+    "Confirmar manualmente o nível UTCI antes de comunicar."
+  )
+}
+
+forecast_datetime_local <- function(value) {
+  timestamp <- parse_ipma_datetime(value)
+  if (is.na(timestamp)) {
+    return("")
+  }
+
+  format(timestamp, "%Y-%m-%d %H:%M", tz = LOCAL_TZ)
+}
+
+has_utci_value <- function(row) {
+  !is.na(to_num(row$utci_c))
+}
+
+build_thermal_stress <- function(latest_forecasts) {
+  source_update <- latest_source_update(latest_forecasts)
+  if (nrow(latest_forecasts) == 0 || source_update == "") {
+    return(empty_frame(THERMAL_STRESS_COLUMNS))
+  }
+
+  rows_with_utci <- latest_forecasts[
+    vapply(seq_len(nrow(latest_forecasts)), function(i) {
+      !is.na(to_num(latest_forecasts$utci_c[i]))
+    }, logical(1)),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(rows_with_utci) == 0) {
+    return(empty_frame(THERMAL_STRESS_COLUMNS))
+  }
+
+  rows <- lapply(seq_len(nrow(rows_with_utci)), function(i) {
+    row <- rows_with_utci[i, , drop = FALSE]
+    classification <- classify_thermal_stress(row$utci_c)
+
+    data.frame(
+      source_updated_at = source_update,
+      fetched_at = FETCHED_AT,
+      location = LOCATION,
+      district = DISTRICT,
+      global_id_local = GLOBAL_ID_LOCAL,
+      target_date = as_text(row$forecast_date),
+      forecast_datetime_utc = as_text(row$forecast_datetime_utc),
+      forecast_datetime_local = forecast_datetime_local(row$forecast_datetime_utc),
+      period_hours = as_text(row$period_hours),
+      utci_c = format_temp(to_num(row$utci_c)),
+      thermal_level = classification$level,
+      thermal_level_order = classification$order,
+      thermal_color = classification$color,
+      thermal_stress_type = classification$stress_type,
+      protection_required = classification$protection,
+      recommendation_summary = thermal_stress_recommendation_summary(classification$level),
+      source = "IPMA public-data forecast aggregate UTCI/temperatura sentida",
+      stringsAsFactors = FALSE
+    )
+  })
+
+  thermal <- bind_rows(rows)
+  thermal[] <- lapply(thermal, as.character)
+  thermal[, THERMAL_STRESS_COLUMNS]
+}
+
+write_thermal_stress <- function(new_data) {
+  existing <- read_existing(THERMAL_STRESS_PATH, THERMAL_STRESS_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    THERMAL_STRESS_COLUMNS,
+    THERMAL_STRESS_KEY_COLUMNS,
+    setdiff(THERMAL_STRESS_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, target_date, forecast_datetime_utc, period_hours) %>%
+    distinct(across(all_of(THERMAL_STRESS_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, THERMAL_STRESS_PATH, na = "")
+
+  latest_update <- latest_source_update(combined)
+  latest <- combined[combined$source_updated_at == latest_update, , drop = FALSE]
+  write_csv(latest, THERMAL_STRESS_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
 weather_warning_level <- function(color) {
   color <- tolower(as_text(color))
   switch(
@@ -2443,6 +2719,208 @@ build_heat_wave_daily_section <- function(rows, report_date) {
   )
 }
 
+thermal_stress_rows_for_report <- function(thermal_stress, report_date) {
+  thermal_dates <- as.Date(thermal_stress$target_date)
+  report_date_value <- as.Date(report_date)
+  selected <- thermal_stress[
+    !is.na(thermal_dates) & thermal_dates >= report_date_value,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(selected) == 0) {
+    selected <- thermal_stress
+  }
+
+  selected %>%
+    mutate(thermal_level_order_num = to_num(thermal_level_order)) %>%
+    arrange(target_date, forecast_datetime_utc, desc(thermal_level_order_num)) %>%
+    select(all_of(THERMAL_STRESS_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+thermal_daily_peak_rows <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(rows)
+  }
+
+  rows %>%
+    mutate(
+      thermal_level_order_num = to_num(thermal_level_order),
+      utci_num = to_num(utci_c)
+    ) %>%
+    group_by(target_date) %>%
+    arrange(desc(thermal_level_order_num), desc(abs(utci_num - 17)), forecast_datetime_utc) %>%
+    slice(1) %>%
+    ungroup() %>%
+    arrange(target_date) %>%
+    select(all_of(THERMAL_STRESS_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+thermal_stress_table_lines <- function(rows) {
+  peak_rows <- thermal_daily_peak_rows(rows)
+  if (nrow(peak_rows) == 0) {
+    return("Sem previsões UTCI preenchidas no último snapshot IPMA.")
+  }
+
+  c(
+    "| Data | Hora local | UTCI | Nível | Proteção |",
+    "|---|---|---:|---|---|",
+    vapply(seq_len(nrow(peak_rows)), function(i) {
+      row <- peak_rows[i, , drop = FALSE]
+      paste0(
+        "| ",
+        as_text(row$target_date),
+        " | ",
+        as_text(row$forecast_datetime_local),
+        " | ",
+        display_temp(row$utci_c),
+        " ºC | ",
+        as_text(row$thermal_level),
+        " | ",
+        as_text(row$protection_required),
+        " |"
+      )
+    }, character(1))
+  )
+}
+
+highest_thermal_stress_row <- function(rows) {
+  peak_rows <- thermal_daily_peak_rows(rows)
+  if (nrow(peak_rows) == 0) {
+    return(empty_frame(THERMAL_STRESS_COLUMNS))
+  }
+
+  peak_rows %>%
+    mutate(
+      thermal_level_order_num = to_num(thermal_level_order),
+      utci_num = to_num(utci_c)
+    ) %>%
+    arrange(desc(thermal_level_order_num), desc(abs(utci_num - 17)), target_date) %>%
+    slice(1) %>%
+    select(all_of(THERMAL_STRESS_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+thermal_stress_recommendations <- function(row) {
+  level <- as_text(row$thermal_level)
+  stress_type <- as_text(row$thermal_stress_type)
+
+  if (level == "Sem dados" || nrow(row) == 0) {
+    return(paste(
+      "Comunicação geral: não emitir recomendação automática de stress térmico sem confirmar a previsão UTCI.",
+      "Grupos vulneráveis: manter vigilância de rotina e confirmar as condições meteorológicas antes de adaptar atividades.",
+      "Estabelecimentos: manter monitorização do UTCI/temperatura sentida e preparar medidas de calor ou frio conforme a previsão.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (stress_type == "Sem stress térmico") {
+    return(paste(
+      "Comunicação geral: sem stress térmico relevante no pico previsto. Manter hidratação, roupa adequada à estação e vigilância habitual.",
+      "Grupos vulneráveis: manter cuidados habituais, com atenção a sintomas respiratórios, cardiovasculares ou sinais de desconforto térmico.",
+      "Estabelecimentos: manter atividades previstas, garantindo água, sombra quando houver sol e possibilidade de abrigo em caso de mudança meteorológica.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (stress_type == "Calor") {
+    high_heat <- level %in% c(
+      "Stress por calor elevado",
+      "Stress por calor muito elevado",
+      "Stress por calor extremo"
+    )
+    extreme_heat <- level %in% c(
+      "Stress por calor muito elevado",
+      "Stress por calor extremo"
+    )
+
+    general <- if (extreme_heat) {
+      "Comunicação geral: stress térmico por calor muito elevado/extremo. Evitar exposição exterior não essencial nas horas de pico, beber água mesmo sem sede, procurar locais frescos ou climatizados e estar atento a sinais de exaustão pelo calor."
+    } else if (high_heat) {
+      "Comunicação geral: stress térmico por calor elevado. Reduzir exposição solar direta e esforço físico no exterior nas horas de pico; reforçar hidratação, sombra, roupa leve e pausas."
+    } else {
+      "Comunicação geral: stress térmico por calor moderado. Reforçar hidratação, procurar sombra nas atividades prolongadas e adaptar esforço físico ao ar livre."
+    }
+
+    vulnerable <- "Grupos vulneráveis: crianças, pessoas idosas, grávidas, pessoas com doença cardiovascular, respiratória, renal, diabetes, problemas de saúde mental, pessoas acamadas ou isoladas e trabalhadores no exterior devem ter vigilância reforçada, água disponível e acesso a local fresco."
+    establishments <- if (extreme_heat) {
+      "Estabelecimentos: suspender ou substituir atividades físicas intensas ao ar livre nas horas de pico, reforçar arrefecimento dos espaços, pausas, água e contacto rápido com cuidadores/famílias se surgirem sintomas."
+    } else {
+      "Estabelecimentos: ajustar horários de atividades exteriores para manhã cedo ou fim do dia, garantir sombra, água, pausas frequentes e observação ativa de utentes/trabalhadores vulneráveis."
+    }
+
+    return(paste(general, vulnerable, establishments, sep = "\n\n"))
+  }
+
+  high_cold <- level %in% c(
+    "Stress por frio elevado",
+    "Stress por frio muito elevado",
+    "Stress por frio extremo"
+  )
+  extreme_cold <- level %in% c(
+    "Stress por frio muito elevado",
+    "Stress por frio extremo"
+  )
+
+  general <- if (extreme_cold) {
+    "Comunicação geral: stress térmico por frio muito elevado/extremo. Evitar exposição exterior não essencial, usar várias camadas de roupa, proteger cabeça e extremidades e manter hidratação com bebidas quentes sem álcool."
+  } else if (high_cold) {
+    "Comunicação geral: stress térmico por frio elevado. Limitar exposição prolongada, proteger extremidades, evitar mudanças bruscas de temperatura e aquecer a habitação com segurança."
+  } else {
+    "Comunicação geral: stress térmico por frio ligeiro/moderado. Usar roupa adequada, proteger extremidades em atividades exteriores e manter atenção a desconforto ou agravamento de sintomas."
+  }
+
+  vulnerable <- "Grupos vulneráveis: bebés, pessoas idosas, pessoas com doença cardiovascular, respiratória, diabetes, mobilidade reduzida, isolamento social ou trabalho exterior devem ser acompanhadas de perto; garantir medicação acessível, casa aquecida com ventilação segura e contacto regular."
+  establishments <- if (extreme_cold) {
+    "Estabelecimentos: condicionar atividades exteriores, reforçar aquecimento seguro, confirmar transporte/abrigo e acompanhar sinais de hipotermia, enregelamento ou agravamento respiratório/cardiovascular."
+  } else {
+    "Estabelecimentos: adaptar horários e duração de atividades exteriores, garantir abrigo aquecido, roupa adequada, bebidas quentes e vigilância de utentes/trabalhadores vulneráveis."
+  }
+
+  paste(general, vulnerable, establishments, sep = "\n\n")
+}
+
+build_thermal_stress_daily_section <- function(rows, report_date) {
+  source_update <- latest_source_update(rows)
+  if (source_update == "") {
+    source_update <- as_text(rows$source_updated_at)
+  }
+
+  recommendation_row <- highest_thermal_stress_row(rows)
+
+  c(
+    "<!-- utci:start -->",
+    paste0("## Stress térmico UTCI - previsões disponíveis em ", report_date),
+    "",
+    paste0(
+      "Fonte dos valores: IPMA. Atualização IPMA: ",
+      source_update,
+      " UTC. O UTCI traduz a temperatura sentida em classes de stress térmico por calor ou frio."
+    ),
+    "",
+    thermal_stress_table_lines(rows),
+    "",
+    paste0(
+      "Nível mais exigente no período: ",
+      as_text(recommendation_row$thermal_level),
+      " em ",
+      as_text(recommendation_row$forecast_datetime_local),
+      " (UTCI ",
+      display_temp(recommendation_row$utci_c),
+      " ºC). As recomendações abaixo seguem este nível."
+    ),
+    "",
+    thermal_stress_recommendations(recommendation_row),
+    "",
+    "Fontes de apoio para recomendações de stress térmico:",
+    "",
+    THERMAL_STRESS_SOURCE_LINKS,
+    "<!-- utci:end -->"
+  )
+}
+
 alert_rows_for_report <- function(alerts, report_date) {
   alert_dates <- as.Date(alerts$target_date)
   end_dates <- as.Date(substr(alerts$end_time, 1, 10))
@@ -2828,6 +3306,43 @@ update_daily_heat_wave_report <- function(heat_waves) {
   report_path
 }
 
+update_daily_thermal_stress_report <- function(thermal_stress) {
+  if (nrow(thermal_stress) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  thermal_dates <- as.Date(thermal_stress$target_date)
+  if (!any(!is.na(thermal_dates) & thermal_dates >= as.Date(report_date))) {
+    report_date <- as_text(thermal_stress$target_date[1])
+  }
+  selected <- thermal_stress_rows_for_report(thermal_stress, report_date)
+
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", report_date),
+      ""
+    )
+  }
+
+  section <- build_thermal_stress_daily_section(selected, report_date)
+  updated <- replace_marked_section_after(
+    existing,
+    section,
+    "utci",
+    "onda-calor"
+  )
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 update_daily_uv_report <- function(uv_index) {
   if (nrow(uv_index) == 0) {
     return("")
@@ -2897,77 +3412,163 @@ update_daily_ipma_alerts_report <- function(alerts) {
   report_path
 }
 
+ipma_run_mode <- function() {
+  args <- commandArgs(trailingOnly = TRUE)
+  mode <- if (length(args) > 0) {
+    args[[1]]
+  } else {
+    Sys.getenv("IPMA_RUN_MODE", unset = "full")
+  }
+
+  tolower(mode)
+}
+
+run_station_fallback_pipeline <- function() {
+  station_observations_data <- build_station_observations()
+  station_observations_history <- write_station_observations(station_observations_data)
+
+  station_daily_data <- build_station_daily_temperatures(station_observations_history)
+  station_daily_history <- write_station_daily_temperatures(station_daily_data)
+
+  list(
+    observations_data = station_observations_data,
+    observations_history = station_observations_history,
+    daily_data = station_daily_data,
+    daily_history = station_daily_history
+  )
+}
+
+run_ipma_alerts_pipeline <- function() {
+  ipma_alerts_data <- build_ipma_alerts()
+  ipma_alerts_result <- write_ipma_alerts(ipma_alerts_data)
+  daily_ipma_alerts_report_path <- update_daily_ipma_alerts_report(ipma_alerts_result$latest)
+
+  list(
+    data = ipma_alerts_data,
+    result = ipma_alerts_result,
+    report_path = daily_ipma_alerts_report_path
+  )
+}
+
+run_full_pipeline <- function() {
+  climate_temperature_data <- build_temperature_history()
+  station <- run_station_fallback_pipeline()
+
+  temperature_data <- apply_station_temperature_fallback(
+    climate_temperature_data,
+    station$daily_history
+  )
+  temperature_history <- write_temperature_history(temperature_data)
+
+  forecast_data <- build_forecasts()
+  forecast_result <- write_forecasts(forecast_data)
+
+  temperature_alerts_data <- build_temperature_alerts(
+    temperature_history,
+    forecast_result$latest
+  )
+  temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
+  daily_temperature_report_path <- update_daily_temperature_report(
+    temperature_alerts_result$latest
+  )
+
+  heat_wave_data <- build_heat_waves(
+    temperature_history,
+    forecast_result$latest
+  )
+  heat_wave_result <- write_heat_waves(heat_wave_data)
+  daily_heat_wave_report_path <- update_daily_heat_wave_report(heat_wave_result$latest)
+
+  thermal_stress_data <- build_thermal_stress(forecast_result$latest)
+  thermal_stress_result <- write_thermal_stress(thermal_stress_data)
+  daily_thermal_stress_report_path <- update_daily_thermal_stress_report(
+    thermal_stress_result$latest
+  )
+
+  uv_index_data <- build_uv_index(forecast_result$latest)
+  uv_index_result <- write_uv_index(uv_index_data)
+  daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
+
+  ipma_alerts <- run_ipma_alerts_pipeline()
+
+  message(sprintf(
+    paste(
+      "OK full - %d climate temperature row(s) fetched; %d station observation row(s) fetched.",
+      "Station observation archive has %d row(s); station daily fallback has %d row(s).",
+      "%d temperature row(s) prepared; temperature history has %d row(s).",
+      "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
+      "%d temperature alert row(s) calculated; alert archive has %d row(s); temperature report: %s.",
+      "%d heat wave row(s) calculated; heat wave archive has %d row(s); heat wave report: %s.",
+      "%d UTCI row(s) calculated; UTCI archive has %d row(s); UTCI report: %s.",
+      "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
+      "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
+    ),
+    nrow(climate_temperature_data),
+    nrow(station$observations_data),
+    nrow(station$observations_history),
+    nrow(station$daily_history),
+    nrow(temperature_data),
+    nrow(temperature_history),
+    nrow(forecast_data),
+    nrow(forecast_result$combined),
+    nrow(forecast_result$latest),
+    nrow(temperature_alerts_data),
+    nrow(temperature_alerts_result$combined),
+    daily_temperature_report_path,
+    nrow(heat_wave_data),
+    nrow(heat_wave_result$combined),
+    daily_heat_wave_report_path,
+    nrow(thermal_stress_data),
+    nrow(thermal_stress_result$combined),
+    daily_thermal_stress_report_path,
+    nrow(uv_index_data),
+    nrow(uv_index_result$combined),
+    daily_uv_report_path,
+    nrow(ipma_alerts$data),
+    nrow(ipma_alerts$result$combined),
+    ipma_alerts$report_path
+  ))
+}
+
+run_light_pipeline <- function() {
+  station <- run_station_fallback_pipeline()
+  ipma_alerts <- run_ipma_alerts_pipeline()
+
+  message(sprintf(
+    paste(
+      "OK light - %d station observation row(s) fetched.",
+      "Station observation archive has %d row(s); station daily fallback has %d row(s).",
+      "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
+    ),
+    nrow(station$observations_data),
+    nrow(station$observations_history),
+    nrow(station$daily_history),
+    nrow(ipma_alerts$data),
+    nrow(ipma_alerts$result$combined),
+    ipma_alerts$report_path
+  ))
+}
+
+run_alerts_pipeline <- function() {
+  ipma_alerts <- run_ipma_alerts_pipeline()
+
+  message(sprintf(
+    "OK alerts - %d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s.",
+    nrow(ipma_alerts$data),
+    nrow(ipma_alerts$result$combined),
+    ipma_alerts$report_path
+  ))
+}
+
 dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 
-climate_temperature_data <- build_temperature_history()
-
-station_observations_data <- build_station_observations()
-station_observations_history <- write_station_observations(station_observations_data)
-
-station_daily_data <- build_station_daily_temperatures(station_observations_history)
-station_daily_history <- write_station_daily_temperatures(station_daily_data)
-
-temperature_data <- apply_station_temperature_fallback(
-  climate_temperature_data,
-  station_daily_history
-)
-temperature_history <- write_temperature_history(temperature_data)
-
-forecast_data <- build_forecasts()
-forecast_result <- write_forecasts(forecast_data)
-
-temperature_alerts_data <- build_temperature_alerts(
-  temperature_history,
-  forecast_result$latest
-)
-temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
-daily_temperature_report_path <- update_daily_temperature_report(temperature_alerts_result$latest)
-
-heat_wave_data <- build_heat_waves(
-  temperature_history,
-  forecast_result$latest
-)
-heat_wave_result <- write_heat_waves(heat_wave_data)
-daily_heat_wave_report_path <- update_daily_heat_wave_report(heat_wave_result$latest)
-
-uv_index_data <- build_uv_index(forecast_result$latest)
-uv_index_result <- write_uv_index(uv_index_data)
-daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
-
-ipma_alerts_data <- build_ipma_alerts()
-ipma_alerts_result <- write_ipma_alerts(ipma_alerts_data)
-daily_ipma_alerts_report_path <- update_daily_ipma_alerts_report(ipma_alerts_result$latest)
-
-message(sprintf(
-  paste(
-    "OK - %d climate temperature row(s) fetched; %d station observation row(s) fetched.",
-    "Station observation archive has %d row(s); station daily fallback has %d row(s).",
-    "%d temperature row(s) prepared; temperature history has %d row(s).",
-    "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
-    "%d temperature alert row(s) calculated; alert archive has %d row(s); temperature report: %s.",
-    "%d heat wave row(s) calculated; heat wave archive has %d row(s); heat wave report: %s.",
-    "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
-    "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
-  ),
-  nrow(climate_temperature_data),
-  nrow(station_observations_data),
-  nrow(station_observations_history),
-  nrow(station_daily_history),
-  nrow(temperature_data),
-  nrow(temperature_history),
-  nrow(forecast_data),
-  nrow(forecast_result$combined),
-  nrow(forecast_result$latest),
-  nrow(temperature_alerts_data),
-  nrow(temperature_alerts_result$combined),
-  daily_temperature_report_path,
-  nrow(heat_wave_data),
-  nrow(heat_wave_result$combined),
-  daily_heat_wave_report_path,
-  nrow(uv_index_data),
-  nrow(uv_index_result$combined),
-  daily_uv_report_path,
-  nrow(ipma_alerts_data),
-  nrow(ipma_alerts_result$combined),
-  daily_ipma_alerts_report_path
-))
+mode <- ipma_run_mode()
+if (mode == "full") {
+  run_full_pipeline()
+} else if (mode == "light") {
+  run_light_pipeline()
+} else if (mode == "alerts") {
+  run_alerts_pipeline()
+} else {
+  stop("Unknown IPMA run mode: ", mode, ". Use full, light or alerts.")
+}
