@@ -29,6 +29,14 @@ THERMAL_STRESS_LATEST_PATH <- file.path(
   DATA_DIR,
   "ipma_matosinhos_thermal_stress_latest.csv"
 )
+SNS_HEALTH_INDEX_PATH <- file.path(
+  DATA_DIR,
+  "sns_matosinhos_temperature_health_indices.csv"
+)
+SNS_HEALTH_INDEX_LATEST_PATH <- file.path(
+  DATA_DIR,
+  "sns_matosinhos_temperature_health_indices_latest.csv"
+)
 IPMA_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts.csv")
 IPMA_ALERTS_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts_latest.csv")
 DAILY_DIR <- "daily"
@@ -68,6 +76,17 @@ FIRE_RISK_URLS <- paste0(
   "/open-data/forecast/meteorology/rcm/rcm-d",
   0:1,
   ".json"
+)
+SNS_BASE <- "https://transparencia.sns.gov.pt"
+SNS_ICARO_URL <- paste0(
+  SNS_BASE,
+  "/explore/dataset/evolucao-diaria-do-indice-icaro/download",
+  "?format=json&timezone=Europe/Lisbon&use_labels_for_header=false"
+)
+SNS_FRIESA_URL <- paste0(
+  SNS_BASE,
+  "/explore/dataset/indice-friesa/download",
+  "?format=json&timezone=Europe/Lisbon&use_labels_for_header=false"
 )
 
 FALLBACK_STATIONS <- data.frame(
@@ -246,6 +265,24 @@ THERMAL_STRESS_COLUMNS <- c(
   "source"
 )
 
+SNS_HEALTH_INDEX_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "dico",
+  "index_name",
+  "index_scope",
+  "target_date",
+  "index_value",
+  "risk_label",
+  "risk_level_order",
+  "provisional_note",
+  "season",
+  "recommendation_summary",
+  "source"
+)
+
 IPMA_ALERT_COLUMNS <- c(
   "source_updated_at",
   "fetched_at",
@@ -283,6 +320,11 @@ THERMAL_STRESS_KEY_COLUMNS <- c(
   "source_updated_at",
   "forecast_datetime_utc",
   "period_hours"
+)
+SNS_HEALTH_INDEX_KEY_COLUMNS <- c(
+  "index_name",
+  "index_scope",
+  "target_date"
 )
 IPMA_ALERT_KEY_COLUMNS <- c(
   "source_updated_at",
@@ -381,6 +423,15 @@ THERMAL_STRESS_SOURCE_LINKS <- c(
   "- DGS, calor - recomendações à população: https://www.dgs.pt/em-destaque/recomendacoes-a-populacao-calor.aspx",
   "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx",
   "- DGS, frio - grupos vulneráveis: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/frio/recomendacoes-para-os-grupos-vulneraveis.aspx"
+)
+
+SNS_HEALTH_SOURCE_LINKS <- c(
+  "- SNS Transparência/INSA, Evolução diária do Índice ÍCARO: https://transparencia.sns.gov.pt/explore/dataset/evolucao-diaria-do-indice-icaro/",
+  "- SNS Transparência/INSA, Índice FRIESA: https://transparencia.sns.gov.pt/explore/dataset/indice-friesa/",
+  "- DGS, Índice-Alerta-ÍCARO no Plano de Contingência para Temperaturas Extremas Adversas: https://www.dgs.pt/directrizes-da-dgs/normas-e-circulares-normativas/norma-n-0072015-de-29042015-pdf.aspx",
+  "- INSA, FRIESA - modelação e previsão do efeito do frio extremo na saúde: https://repositorio.insa.pt/bitstream/10400.18/3703/3/Newsletter%20fevereiro%202016_FRIESA.pdf",
+  "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+  "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx"
 )
 
 IPMA_ALERT_SOURCE_LINKS <- c(
@@ -1973,6 +2024,216 @@ write_thermal_stress <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+classify_icaro <- function(value) {
+  index_value <- to_num(value)
+  if (is.na(index_value)) {
+    return(list(
+      label = "Sem dados",
+      order = "-1"
+    ))
+  }
+
+  if (index_value <= 0) {
+    return(list(
+      label = "Efeito nulo sobre a mortalidade",
+      order = "0"
+    ))
+  }
+
+  if (index_value < 1) {
+    return(list(
+      label = "Efeito não significativo sobre a mortalidade",
+      order = "1"
+    ))
+  }
+
+  if (index_value < 3) {
+    return(list(
+      label = "Provável efeito sobre a mortalidade",
+      order = "2"
+    ))
+  }
+
+  if (index_value <= 5) {
+    return(list(
+      label = "Possível alerta de onda de calor em avaliação",
+      order = "3"
+    ))
+  }
+
+  list(
+    label = "Alerta de onda de calor - esperadas consequências graves",
+    order = "4"
+  )
+}
+
+classify_friesa <- function(value) {
+  index_value <- to_num(value)
+  if (is.na(index_value)) {
+    return(list(
+      label = "Sem dados",
+      order = "-1"
+    ))
+  }
+
+  if (index_value <= 0) {
+    return(list(
+      label = "Sem aumento relativo estimado",
+      order = "0"
+    ))
+  }
+
+  list(
+    label = "Aumento relativo estimado associado ao frio",
+    order = "1"
+  )
+}
+
+sns_health_recommendation_summary <- function(index_name, risk_label) {
+  if (index_name == "ÍCARO") {
+    return(switch(
+      risk_label,
+      "Efeito nulo sobre a mortalidade" = "Sem excesso estimado; manter vigilância e medidas gerais de calor.",
+      "Efeito não significativo sobre a mortalidade" = "ÍCARO positivo mas não significativo; reforçar vigilância se existirem outros sinais de calor.",
+      "Provável efeito sobre a mortalidade" = "Provável impacto do calor; reforçar medidas de proteção e vigilância ativa dos grupos vulneráveis.",
+      "Possível alerta de onda de calor em avaliação" = "Possível alerta de onda de calor; preparar/ativar medidas de contingência para calor.",
+      "Alerta de onda de calor - esperadas consequências graves" = "Alerta de calor com consequências graves esperadas; ativar medidas de contingência e comunicação reforçada.",
+      "Sem dados ÍCARO para recomendação automática."
+    ))
+  }
+
+  switch(
+    risk_label,
+    "Sem aumento relativo estimado" = "Sem aumento relativo estimado por frio no distrito do Porto.",
+    "Aumento relativo estimado associado ao frio" = "FRIESA positivo no distrito do Porto; reforçar medidas de frio, sobretudo para pessoas idosas e vulneráveis.",
+    "Sem dados FRIESA para recomendação automática."
+  )
+}
+
+flatten_icaro <- function(item) {
+  fields <- item$fields
+  target_date <- field_text(fields, "periodo")
+  index_value <- field_text(fields, "ii")
+  classification <- classify_icaro(index_value)
+
+  data.frame(
+    source_updated_at = field_text(item, "record_timestamp"),
+    fetched_at = FETCHED_AT,
+    location = LOCATION,
+    district = DISTRICT,
+    dico = DICO,
+    index_name = "ÍCARO",
+    index_scope = "Nacional",
+    target_date = target_date,
+    index_value = format_temp(to_num(index_value)),
+    risk_label = classification$label,
+    risk_level_order = classification$order,
+    provisional_note = "Últimos 3 dias provisórios; disponibilizado em dias úteis entre maio e setembro.",
+    season = "maio-setembro",
+    recommendation_summary = sns_health_recommendation_summary(
+      "ÍCARO",
+      classification$label
+    ),
+    source = "SNS Transparência/INSA evolução diária do Índice ÍCARO",
+    stringsAsFactors = FALSE
+  )
+}
+
+friesa_row <- function(item, field, scope) {
+  fields <- item$fields
+  index_value <- field_text(fields, field)
+  classification <- classify_friesa(index_value)
+
+  data.frame(
+    source_updated_at = field_text(item, "record_timestamp"),
+    fetched_at = FETCHED_AT,
+    location = LOCATION,
+    district = DISTRICT,
+    dico = DICO,
+    index_name = "FRIESA",
+    index_scope = scope,
+    target_date = field_text(fields, "data"),
+    index_value = format_temp(to_num(index_value)),
+    risk_label = classification$label,
+    risk_level_order = classification$order,
+    provisional_note = paste(
+      "Últimos 9 dias provisórios; disponibilizado em dias úteis entre novembro e março.",
+      "A API pública não inclui os limiares operacionais dos níveis de alerta FRIESA."
+    ),
+    season = "novembro-março",
+    recommendation_summary = sns_health_recommendation_summary(
+      "FRIESA",
+      classification$label
+    ),
+    source = "SNS Transparência/INSA Índice FRIESA",
+    stringsAsFactors = FALSE
+  )
+}
+
+flatten_friesa <- function(item) {
+  bind_rows(
+    friesa_row(item, "porto", "Porto - população geral"),
+    friesa_row(item, "porto65", "Porto - 65+ anos")
+  )
+}
+
+build_sns_health_indices <- function() {
+  icaro <- bind_rows(lapply(fetch_json(SNS_ICARO_URL), flatten_icaro))
+  friesa <- bind_rows(lapply(fetch_json(SNS_FRIESA_URL), flatten_friesa))
+  indices <- bind_rows(icaro, friesa)
+
+  if (nrow(indices) == 0) {
+    return(empty_frame(SNS_HEALTH_INDEX_COLUMNS))
+  }
+
+  indices[] <- lapply(indices, as.character)
+  indices %>%
+    arrange(index_name, index_scope, target_date) %>%
+    select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+latest_sns_health_rows <- function(combined) {
+  if (nrow(combined) == 0) {
+    return(combined)
+  }
+
+  combined %>%
+    mutate(target_date_value = as.Date(target_date)) %>%
+    group_by(index_name, index_scope) %>%
+    filter(
+      !is.na(target_date_value),
+      target_date_value >= max(target_date_value, na.rm = TRUE) - 9
+    ) %>%
+    ungroup() %>%
+    arrange(index_name, index_scope, target_date) %>%
+    select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+write_sns_health_indices <- function(new_data) {
+  existing <- read_existing(SNS_HEALTH_INDEX_PATH, SNS_HEALTH_INDEX_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    SNS_HEALTH_INDEX_COLUMNS,
+    SNS_HEALTH_INDEX_KEY_COLUMNS,
+    setdiff(SNS_HEALTH_INDEX_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(index_name, index_scope, target_date) %>%
+    distinct(across(all_of(SNS_HEALTH_INDEX_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, SNS_HEALTH_INDEX_PATH, na = "")
+
+  latest <- latest_sns_health_rows(combined)
+  write_csv(latest, SNS_HEALTH_INDEX_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
 weather_warning_level <- function(color) {
   color <- tolower(as_text(color))
   switch(
@@ -2921,6 +3182,214 @@ build_thermal_stress_daily_section <- function(rows, report_date) {
   )
 }
 
+sns_health_rows_for_report <- function(indices, report_date) {
+  report_date_value <- as.Date(report_date)
+  index_dates <- as.Date(indices$target_date)
+  month_value <- as.integer(format(report_date_value, "%m"))
+
+  icaro_rows <- empty_frame(SNS_HEALTH_INDEX_COLUMNS)
+  if (month_value %in% 5:9) {
+    icaro_rows <- indices[
+      indices$index_name == "ÍCARO" &
+        !is.na(index_dates) &
+        index_dates >= report_date_value,
+      ,
+      drop = FALSE
+    ]
+  }
+
+  if (nrow(icaro_rows) == 0 && month_value %in% 5:9) {
+    icaro_rows <- indices[indices$index_name == "ÍCARO", , drop = FALSE] %>%
+      mutate(target_date_value = as.Date(target_date)) %>%
+      arrange(desc(target_date_value)) %>%
+      slice(1) %>%
+      select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+      as.data.frame(stringsAsFactors = FALSE)
+  }
+
+  friesa_rows <- empty_frame(SNS_HEALTH_INDEX_COLUMNS)
+  if (month_value %in% c(1, 2, 3, 11, 12)) {
+    friesa_rows <- indices[
+      indices$index_name == "FRIESA" &
+        !is.na(index_dates) &
+        index_dates >= report_date_value,
+      ,
+      drop = FALSE
+    ]
+  }
+
+  if (nrow(friesa_rows) == 0 && month_value %in% c(1, 2, 3, 11, 12)) {
+    friesa_rows <- indices[indices$index_name == "FRIESA", , drop = FALSE] %>%
+      mutate(target_date_value = as.Date(target_date)) %>%
+      group_by(index_scope) %>%
+      arrange(desc(target_date_value)) %>%
+      slice(1) %>%
+      ungroup() %>%
+      select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+      as.data.frame(stringsAsFactors = FALSE)
+  }
+
+  bind_rows(icaro_rows, friesa_rows) %>%
+    mutate(
+      risk_level_order_num = to_num(risk_level_order),
+      target_date_value = as.Date(target_date)
+    ) %>%
+    arrange(index_name, index_scope, target_date_value) %>%
+    select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+sns_health_table_lines <- function(rows, report_date) {
+  month_value <- as.integer(format(as.Date(report_date), "%m"))
+  notes <- character()
+  if (!month_value %in% 5:9) {
+    notes <- c(
+      notes,
+      "ÍCARO: fora da época habitual de disponibilização pública (maio a setembro)."
+    )
+  }
+  if (!month_value %in% c(1, 2, 3, 11, 12)) {
+    notes <- c(
+      notes,
+      "FRIESA: fora da época habitual de disponibilização pública (novembro a março)."
+    )
+  }
+
+  if (nrow(rows) == 0) {
+    return(c("Sem dados ÍCARO/FRIESA aplicáveis ao período do boletim.", "", notes))
+  }
+
+  table <- c(
+    "| Índice | Âmbito | Data | Valor | Interpretação |",
+    "|---|---|---|---:|---|",
+    vapply(seq_len(nrow(rows)), function(i) {
+      row <- rows[i, , drop = FALSE]
+      paste0(
+        "| ",
+        as_text(row$index_name),
+        " | ",
+        as_text(row$index_scope),
+        " | ",
+        as_text(row$target_date),
+        " | ",
+        display_temp(row$index_value),
+        " | ",
+        as_text(row$risk_label),
+        " |"
+      )
+    }, character(1))
+  )
+
+  if (length(notes) > 0) {
+    table <- c(table, "", notes)
+  }
+
+  table
+}
+
+highest_sns_health_row <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(empty_frame(SNS_HEALTH_INDEX_COLUMNS))
+  }
+
+  rows %>%
+    mutate(
+      risk_level_order_num = to_num(risk_level_order),
+      target_date_value = as.Date(target_date)
+    ) %>%
+    arrange(desc(risk_level_order_num), target_date_value, index_name, index_scope) %>%
+    slice(1) %>%
+    select(all_of(SNS_HEALTH_INDEX_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+sns_health_recommendations <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(paste(
+      "Comunicação geral: não emitir recomendação automática com base em ÍCARO/FRIESA sem validação manual; faltam dados no último snapshot.",
+      "Grupos vulneráveis: manter vigilância de rotina e usar os restantes indicadores meteorológicos e ambientais.",
+      "Estabelecimentos: manter planos de contingência de calor/frio disponíveis e aguardar atualização dos índices SNS/INSA.",
+      sep = "\n\n"
+    ))
+  }
+
+  highest <- highest_sns_health_row(rows)
+  index_name <- as_text(highest$index_name)
+  order <- to_num(highest$risk_level_order)
+
+  if (index_name == "ÍCARO") {
+    if (is.na(order) || order <= 0) {
+      return(paste(
+        "Comunicação geral: ÍCARO sem efeito estimado sobre a mortalidade no período disponível; manter comunicação prudente e articular com os restantes indicadores de calor, ozono e UV.",
+        "Grupos vulneráveis: manter cuidados gerais de calor, hidratação e vigilância de sintomas quando houver exposição solar ou esforço ao ar livre.",
+        "Estabelecimentos: manter atividades previstas, com água, sombra e possibilidade de adaptação se os indicadores meteorológicos agravarem.",
+        sep = "\n\n"
+      ))
+    }
+
+    if (order < 2) {
+      return(paste(
+        "Comunicação geral: ÍCARO positivo mas sem efeito significativo estimado. Comunicar vigilância reforçada se coincidirem calor, UV elevado, ozono ou noites quentes.",
+        "Grupos vulneráveis: reforçar hidratação, evitar esforço nas horas mais quentes e manter contacto com pessoas idosas, isoladas ou com doença crónica.",
+        "Estabelecimentos: preparar adaptação de horários e espaços frescos, sem ativação plena de contingência apenas por este índice.",
+        sep = "\n\n"
+      ))
+    }
+
+    return(paste(
+      "Comunicação geral: ÍCARO indica possível/provável impacto do calor na mortalidade. Reforçar comunicação de alerta, hidratação, procura de locais frescos, redução de esforço físico e vigilância de sinais de exaustão/golpe de calor.",
+      "Grupos vulneráveis: contacto ativo com pessoas idosas, isoladas, crianças, grávidas, pessoas com doença crónica, acamadas ou medicadas com fármacos sensíveis ao calor; contactar SNS 24 ou 112 perante sinais graves.",
+      "Estabelecimentos: ativar medidas de contingência para calor, ajustar atividades exteriores, garantir água, sombra/arrefecimento, pausas e acompanhamento de utentes/trabalhadores vulneráveis.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (is.na(order) || order <= 0) {
+    return(paste(
+      "Comunicação geral: FRIESA sem aumento relativo estimado por frio no distrito do Porto; manter vigilância sazonal quando aplicável.",
+      "Grupos vulneráveis: manter cuidados gerais de frio e atenção a sintomas respiratórios/cardiovasculares em dias frios.",
+      "Estabelecimentos: manter planos de abrigo/aquecimento disponíveis durante a época fria.",
+      sep = "\n\n"
+    ))
+  }
+
+  paste(
+    "Comunicação geral: FRIESA positivo para o distrito do Porto. Reforçar comunicação sobre frio, evitar exposição prolongada, usar várias camadas de roupa, proteger extremidades e aquecer espaços com segurança.",
+    "Grupos vulneráveis: contacto ativo com pessoas idosas, bebés, pessoas com doença cardiovascular/respiratória, mobilidade reduzida, isolamento social ou trabalho exterior; garantir medicação, aquecimento seguro e vigilância de hipotermia/enregelamento.",
+    "Estabelecimentos: adaptar atividades exteriores, garantir abrigo aquecido, transporte seguro, bebidas quentes sem álcool e procedimentos para agravamento respiratório/cardiovascular.",
+    sep = "\n\n"
+  )
+}
+
+build_sns_health_daily_section <- function(rows, report_date) {
+  source_updates <- unique(rows$source_updated_at[rows$source_updated_at != ""])
+  source_update_text <- if (length(source_updates) == 0) {
+    FETCHED_AT
+  } else {
+    paste(sort(source_updates), collapse = "; ")
+  }
+
+  c(
+    "<!-- sns-health:start -->",
+    paste0("## Índices SNS/INSA ÍCARO e FRIESA - ", report_date),
+    "",
+    paste0(
+      "Fonte dos valores: SNS Transparência/INSA. Atualizações de origem consideradas: ",
+      source_update_text,
+      ". ÍCARO estima excesso relativo de risco por calor; FRIESA estima risco associado a frio extremo nos distritos de Lisboa e Porto."
+    ),
+    "",
+    sns_health_table_lines(rows, report_date),
+    "",
+    sns_health_recommendations(rows),
+    "",
+    "Fontes de apoio para índices SNS/INSA e recomendações:",
+    "",
+    SNS_HEALTH_SOURCE_LINKS,
+    "<!-- sns-health:end -->"
+  )
+}
+
 alert_rows_for_report <- function(alerts, report_date) {
   alert_dates <- as.Date(alerts$target_date)
   end_dates <- as.Date(substr(alerts$end_time, 1, 10))
@@ -3343,6 +3812,39 @@ update_daily_thermal_stress_report <- function(thermal_stress) {
   report_path
 }
 
+update_daily_sns_health_report <- function(indices) {
+  if (nrow(indices) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  selected <- sns_health_rows_for_report(indices, report_date)
+
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", report_date),
+      ""
+    )
+  }
+
+  section <- build_sns_health_daily_section(selected, report_date)
+  updated <- replace_marked_section_after(
+    existing,
+    section,
+    "sns-health",
+    "utci"
+  )
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 update_daily_uv_report <- function(uv_index) {
   if (nrow(uv_index) == 0) {
     return("")
@@ -3450,6 +3952,20 @@ run_ipma_alerts_pipeline <- function() {
   )
 }
 
+run_sns_health_pipeline <- function() {
+  sns_health_data <- build_sns_health_indices()
+  sns_health_result <- write_sns_health_indices(sns_health_data)
+  daily_sns_health_report_path <- update_daily_sns_health_report(
+    sns_health_result$latest
+  )
+
+  list(
+    data = sns_health_data,
+    result = sns_health_result,
+    report_path = daily_sns_health_report_path
+  )
+}
+
 run_full_pipeline <- function() {
   climate_temperature_data <- build_temperature_history()
   station <- run_station_fallback_pipeline()
@@ -3489,6 +4005,7 @@ run_full_pipeline <- function() {
   uv_index_result <- write_uv_index(uv_index_data)
   daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
 
+  sns_health <- run_sns_health_pipeline()
   ipma_alerts <- run_ipma_alerts_pipeline()
 
   message(sprintf(
@@ -3501,6 +4018,7 @@ run_full_pipeline <- function() {
       "%d heat wave row(s) calculated; heat wave archive has %d row(s); heat wave report: %s.",
       "%d UTCI row(s) calculated; UTCI archive has %d row(s); UTCI report: %s.",
       "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
+      "%d SNS/INSA health index row(s) collected; SNS/INSA archive has %d row(s); SNS/INSA report: %s.",
       "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
     ),
     nrow(climate_temperature_data),
@@ -3524,6 +4042,9 @@ run_full_pipeline <- function() {
     nrow(uv_index_data),
     nrow(uv_index_result$combined),
     daily_uv_report_path,
+    nrow(sns_health$data),
+    nrow(sns_health$result$combined),
+    sns_health$report_path,
     nrow(ipma_alerts$data),
     nrow(ipma_alerts$result$combined),
     ipma_alerts$report_path
@@ -3532,17 +4053,22 @@ run_full_pipeline <- function() {
 
 run_light_pipeline <- function() {
   station <- run_station_fallback_pipeline()
+  sns_health <- run_sns_health_pipeline()
   ipma_alerts <- run_ipma_alerts_pipeline()
 
   message(sprintf(
     paste(
       "OK light - %d station observation row(s) fetched.",
       "Station observation archive has %d row(s); station daily fallback has %d row(s).",
+      "%d SNS/INSA health index row(s) collected; SNS/INSA archive has %d row(s); SNS/INSA report: %s.",
       "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
     ),
     nrow(station$observations_data),
     nrow(station$observations_history),
     nrow(station$daily_history),
+    nrow(sns_health$data),
+    nrow(sns_health$result$combined),
+    sns_health$report_path,
     nrow(ipma_alerts$data),
     nrow(ipma_alerts$result$combined),
     ipma_alerts$report_path
