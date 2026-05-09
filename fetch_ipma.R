@@ -2591,10 +2591,6 @@ build_temperature_daily_section <- function(row) {
   c(
     content,
     temperature_recommendations(row),
-    "",
-    "Fontes de apoio para recomendações de temperatura:",
-    "",
-    HEAT_SOURCE_LINKS,
     "<!-- temperatura-dsp:end -->"
   )
 }
@@ -2781,10 +2777,6 @@ build_uv_daily_section <- function(rows, report_date) {
     ),
     "",
     uv_recommendations(recommendation_row),
-    "",
-    "Fontes de apoio para recomendações UV:",
-    "",
-    UV_SOURCE_LINKS,
     "<!-- uv:end -->"
   )
 }
@@ -2973,10 +2965,6 @@ build_heat_wave_daily_section <- function(rows, report_date) {
     ),
     "",
     heat_wave_recommendations(recommendation_row),
-    "",
-    "Fontes de apoio para definição e recomendações de onda de calor:",
-    "",
-    HEAT_WAVE_SOURCE_LINKS,
     "<!-- onda-calor:end -->"
   )
 }
@@ -3175,10 +3163,6 @@ build_thermal_stress_daily_section <- function(rows, report_date) {
     ),
     "",
     thermal_stress_recommendations(recommendation_row),
-    "",
-    "Fontes de apoio para recomendações de stress térmico:",
-    "",
-    THERMAL_STRESS_SOURCE_LINKS,
     "<!-- utci:end -->"
   )
 }
@@ -3383,10 +3367,6 @@ build_sns_health_daily_section <- function(rows, report_date) {
     sns_health_table_lines(rows, report_date),
     "",
     sns_health_recommendations(rows),
-    "",
-    "Fontes de apoio para índices SNS/INSA e recomendações:",
-    "",
-    SNS_HEALTH_SOURCE_LINKS,
     "<!-- sns-health:end -->"
   )
 }
@@ -3644,10 +3624,6 @@ build_ipma_alerts_daily_section <- function(rows, report_date) {
     alert_table_lines(rows),
     "",
     ipma_alert_recommendations(rows),
-    "",
-    "Fontes de apoio para recomendações de avisos IPMA:",
-    "",
-    IPMA_ALERT_SOURCE_LINKS,
     "<!-- ipma-alerts:end -->"
   )
 }
@@ -3664,7 +3640,7 @@ replace_marked_section <- function(existing, section, marker) {
     return(c(before, section, after))
   }
 
-  source_header <- grep("^## Fontes usadas para recomendações", existing)
+  source_header <- grep(SOURCES_HEADER_PATTERN, existing)
   if (length(source_header) > 0) {
     before <- if (source_header[1] > 1) existing[seq_len(source_header[1] - 1)] else character()
     after <- existing[source_header[1]:length(existing)]
@@ -3735,7 +3711,7 @@ update_daily_temperature_report <- function(alerts) {
 
   section <- build_temperature_daily_section(selected[1, , drop = FALSE])
   updated <- replace_managed_section(existing, section)
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3773,7 +3749,7 @@ update_daily_heat_wave_report <- function(heat_waves) {
     "onda-calor",
     "temperatura-dsp"
   )
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3811,7 +3787,7 @@ update_daily_thermal_stress_report <- function(thermal_stress) {
     "utci",
     "onda-calor"
   )
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3845,7 +3821,7 @@ update_daily_sns_health_report <- function(indices) {
     "sns-health",
     "utci"
   )
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3878,7 +3854,7 @@ update_daily_uv_report <- function(uv_index) {
 
   section <- build_uv_daily_section(selected, report_date)
   updated <- replace_marked_section(existing, section, "uv")
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3916,7 +3892,7 @@ update_daily_ipma_alerts_report <- function(alerts) {
 
   section <- build_ipma_alerts_daily_section(selected, report_date)
   updated <- replace_marked_section(existing, section, "ipma-alerts")
-  updated <- replace_operational_summary(updated, report_date)
+  updated <- finalize_daily_report(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }

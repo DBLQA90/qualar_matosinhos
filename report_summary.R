@@ -1,4 +1,68 @@
 SUMMARY_MARKER <- "sintese"
+SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
+
+REPORT_SOURCE_SECTIONS <- list(
+  "Qualidade do ar" = c(
+    "- APA/DGS, Índice QualAr e classificação por poluente: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/qualidade-do-ar-ambiente/indice-de-qualidade-do-ar.aspx",
+    "- DGS, recomendações de saúde para níveis Fraco e Mau: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/qualidade-do-ar-ambiente/recomendacoes-de-saude.aspx",
+    "- Agência Europeia do Ambiente, mensagens de saúde por severidade: https://www.eea.europa.eu/pt/help/perguntas-frequentes/o-que-significam-os-valores",
+    "- OMS Europa, medidas pessoais para reduzir exposição à poluição atmosférica: https://www.who.int/publications/i/item/WHO-EURO-2024-9115-48887-72806",
+    "- EPA, ozono troposférico e redução de esforço ao ar livre: https://www.epa.gov/ozone-pollution-and-your-patients-health/what-ozone",
+    "- EPA, NO₂ e efeitos respiratórios: https://www.epa.gov/no2-pollution/basic-information-about-no2"
+  ),
+  "Temperatura DSP" = c(
+    "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, temperaturas elevadas - recomendações: https://www.dgs.pt/em-destaque/temperaturas-elevadas-recomendacoes-da-dgs.aspx",
+    "- SNS/DGS/INSA, recomendações contra o calor: https://www.sns.min-saude.pt/comunicado-conjunto-aumento-da-temperatura-recomendacoes-contra-o-calor/"
+  ),
+  "Onda de calor" = c(
+    "- IPMA, definição de Onda de Calor: https://www.ipma.pt/pt/enciclopedia/clima/index.html?page=onda.calor.xml",
+    "- IPMA, monitorização de Ondas de Calor: https://www.ipma.pt/pt/oclima/ondascalor/",
+    "- IPMA, Normal Climatológica 1991-2020 - Porto/Pedras Rubras: https://www.ipma.pt/opencms/bin/file.data/climate-normal/cn_91-20_PORTO_PEDRAS_RUBRAS.pdf",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, calor - perguntas e respostas: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/calor/perguntas-e-respostas.aspx"
+  ),
+  "Stress térmico UTCI" = c(
+    "- IPMA, UTCI - Índice Climático Térmico Universal: https://www.ipma.pt/pt/enciclopedia/amb.atmosfera/index.bioclima/index.html?page=utci.xml",
+    "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, calor - recomendações à população: https://www.dgs.pt/em-destaque/recomendacoes-a-populacao-calor.aspx",
+    "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx",
+    "- DGS, frio - grupos vulneráveis: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/frio/recomendacoes-para-os-grupos-vulneraveis.aspx"
+  ),
+  "ÍCARO e FRIESA" = c(
+    "- SNS Transparência/INSA, Evolução diária do Índice ÍCARO: https://transparencia.sns.gov.pt/explore/dataset/evolucao-diaria-do-indice-icaro/",
+    "- SNS Transparência/INSA, Índice FRIESA: https://transparencia.sns.gov.pt/explore/dataset/indice-friesa/",
+    "- DGS, Índice-Alerta-ÍCARO no Plano de Contingência para Temperaturas Extremas Adversas: https://www.dgs.pt/directrizes-da-dgs/normas-e-circulares-normativas/norma-n-0072015-de-29042015-pdf.aspx",
+    "- INSA, FRIESA - modelação e previsão do efeito do frio extremo na saúde: https://repositorio.insa.pt/bitstream/10400.18/3703/3/Newsletter%20fevereiro%202016_FRIESA.pdf",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx"
+  ),
+  "Índice UV" = c(
+    "- IPMA, Índice Ultravioleta e classes IUV: https://www.ipma.pt/pt/enciclopedia/amb.atmosfera/uv/index.html",
+    "- IPMA, previsão do Índice Ultravioleta: https://www.ipma.pt/pt/otempo/prev.uv/",
+    "- OMS, índice UV e recomendações de proteção: https://www.who.int/news-room/questions-and-answers/item/radiation-the-ultraviolet-%28uv%29-index",
+    "- OMS, radiação ultravioleta e proteção: https://www.who.int/news-room/fact-sheets/detail/ultraviolet-radiation",
+    "- EPA, escala do Índice UV conforme orientações internacionais: https://www.epa.gov/sunsafety/uv-index-scale-0"
+  ),
+  "Avisos IPMA" = c(
+    "- IPMA, API de avisos meteorológicos e risco de incêndio: https://api.ipma.pt/",
+    "- IPMA, guia dos avisos meteorológicos: https://www.ipma.pt/pt/enciclopedia/otempo/sam/index.html",
+    "- IPMA, perigo de incêndio rural: https://www.ipma.pt/pt/enciclopedia/otempo/risco.incendio/index.jsp?page=pirdl.xml",
+    "- ANEPC, avisos à população e medidas preventivas: https://prociv.gov.pt/pt/avisos-a-populacao/",
+    "- ANEPC, perigo de incêndio rural - medidas preventivas: https://prociv.gov.pt/pt/noticias/20082025-perigo-de-incendio-rural-medidas-preventivas/"
+  )
+)
+
+INLINE_SOURCE_HEADERS <- c(
+  "Fontes de apoio para recomendações de temperatura:",
+  "Fontes de apoio para definição e recomendações de onda de calor:",
+  "Fontes de apoio para recomendações de stress térmico:",
+  "Fontes de apoio para índices SNS/INSA e recomendações:",
+  "Fontes de apoio para recomendações UV:",
+  "Fontes de apoio para recomendações de avisos IPMA:"
+)
 
 summary_as_text <- function(x) {
   if (is.null(x) || length(x) == 0) {
@@ -156,6 +220,83 @@ summary_compact_blank_lines <- function(content) {
   }
 
   content[keep]
+}
+
+build_report_sources_section <- function() {
+  section <- c(
+    "## Fontes e metodologia",
+    "",
+    "As fontes abaixo fundamentam os valores, critérios e recomendações usados no boletim. Estão agrupadas por indicador para facilitar auditoria e revisão."
+  )
+
+  for (section_name in names(REPORT_SOURCE_SECTIONS)) {
+    section <- c(
+      section,
+      "",
+      paste0("### ", section_name),
+      "",
+      REPORT_SOURCE_SECTIONS[[section_name]]
+    )
+  }
+
+  section
+}
+
+strip_inline_source_blocks <- function(content) {
+  if (length(content) == 0) {
+    return(content)
+  }
+
+  out <- character()
+  i <- 1
+  while (i <= length(content)) {
+    if (content[[i]] %in% INLINE_SOURCE_HEADERS) {
+      i <- i + 1
+      while (
+        i <= length(content) &&
+          content[[i]] == ""
+      ) {
+        i <- i + 1
+      }
+      while (
+        i <= length(content) &&
+          content[[i]] != "" &&
+          !grepl("^<!-- ", content[[i]]) &&
+          !grepl("^#{2,3} ", content[[i]])
+      ) {
+        i <- i + 1
+      }
+      while (
+        i <= length(content) &&
+          content[[i]] == ""
+      ) {
+        i <- i + 1
+      }
+      next
+    }
+
+    out <- c(out, content[[i]])
+    i <- i + 1
+  }
+
+  out
+}
+
+replace_report_sources <- function(content) {
+  content <- strip_inline_source_blocks(content)
+  source_header <- grep(SOURCES_HEADER_PATTERN, content)
+  section <- build_report_sources_section()
+
+  if (length(source_header) > 0) {
+    before <- if (source_header[1] > 1) {
+      content[seq_len(source_header[1] - 1)]
+    } else {
+      character()
+    }
+    return(summary_compact_blank_lines(c(before, section)))
+  }
+
+  summary_compact_blank_lines(c(content, "", section))
 }
 
 summary_qualar_signal <- function(report_date) {
@@ -822,13 +963,18 @@ replace_operational_summary <- function(content, report_date) {
   summary_compact_blank_lines(c(section, "", content))
 }
 
+finalize_daily_report <- function(content, report_date) {
+  content <- replace_operational_summary(content, report_date)
+  replace_report_sources(content)
+}
+
 refresh_daily_summary_file <- function(report_path, report_date) {
   if (!file.exists(report_path)) {
     return(report_path)
   }
 
   content <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
-  updated <- replace_operational_summary(content, report_date)
+  updated <- finalize_daily_report(content, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }

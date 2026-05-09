@@ -476,9 +476,7 @@ build_daily_report <- function(predictions, report_date) {
 
   c(
     content,
-    "## Fontes usadas para recomendações",
-    "",
-    SOURCE_LINKS
+    build_report_sources_section()
   )
 }
 
@@ -498,7 +496,7 @@ insert_marked_section <- function(content, section) {
     return(content)
   }
 
-  source_header <- grep("^## Fontes usadas para recomendações", content)
+  source_header <- grep(SOURCES_HEADER_PATTERN, content)
   if (length(source_header) > 0) {
     before <- if (source_header[1] > 1) {
       content[seq_len(source_header[1] - 1)]
@@ -534,7 +532,7 @@ write_daily_report <- function(predictions, report_date) {
     content <- insert_existing_managed_sections(content, existing)
   }
 
-  content <- replace_operational_summary(content, report_date)
+  content <- finalize_daily_report(content, report_date)
   writeLines(content, report_path, useBytes = TRUE)
   report_path
 }
