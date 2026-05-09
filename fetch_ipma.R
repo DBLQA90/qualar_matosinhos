@@ -38,6 +38,11 @@ SNS_HEALTH_INDEX_LATEST_PATH <- file.path(
   DATA_DIR,
   "sns_matosinhos_temperature_health_indices_latest.csv"
 )
+CLIMA_EXTREMO_PATH <- file.path(DATA_DIR, "clima_extremo_matosinhos_risk.csv")
+CLIMA_EXTREMO_LATEST_PATH <- file.path(
+  DATA_DIR,
+  "clima_extremo_matosinhos_risk_latest.csv"
+)
 IPMA_ALERTS_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts.csv")
 IPMA_ALERTS_LATEST_PATH <- file.path(DATA_DIR, "ipma_matosinhos_alerts_latest.csv")
 DAILY_DIR <- "daily"
@@ -89,6 +94,14 @@ SNS_FRIESA_URL <- paste0(
   "/explore/dataset/indice-friesa/download",
   "?format=json&timezone=Europe/Lisbon&use_labels_for_header=false"
 )
+CLIMA_EXTREMO_BASE <- "http://climaextremo.vps.tecnico.ulisboa.pt:8100"
+CLIMA_EXTREMO_METADATA_URL <- paste0(CLIMA_EXTREMO_BASE, "/api/weather/metadata")
+CLIMA_EXTREMO_DATES_URL <- paste0(CLIMA_EXTREMO_BASE, "/api/weather/dates")
+CLIMA_EXTREMO_MAP_URL <- paste0(
+  CLIMA_EXTREMO_BASE,
+  "/api/map/getRegionBordersAndWeather?dateId="
+)
+CLIMA_EXTREMO_REGION <- "matosinhos"
 
 FALLBACK_STATIONS <- data.frame(
   station_id = c("1200545", "1210649"),
@@ -284,6 +297,30 @@ SNS_HEALTH_INDEX_COLUMNS <- c(
   "source"
 )
 
+CLIMA_EXTREMO_COLUMNS <- c(
+  "source_updated_at",
+  "fetched_at",
+  "location",
+  "district",
+  "dico",
+  "region",
+  "target_date",
+  "date_id",
+  "risk_index",
+  "risk_label",
+  "risk_level_order",
+  "risk_color",
+  "risk_alert",
+  "indoor_temperature_c",
+  "indoor_temperature_label",
+  "indoor_temperature_alert",
+  "outdoor_temperature_c",
+  "vulnerability_index",
+  "source_note",
+  "recommendation_summary",
+  "source"
+)
+
 IPMA_ALERT_COLUMNS <- c(
   "source_updated_at",
   "fetched_at",
@@ -326,6 +363,12 @@ SNS_HEALTH_INDEX_KEY_COLUMNS <- c(
   "index_name",
   "index_scope",
   "target_date"
+)
+CLIMA_EXTREMO_KEY_COLUMNS <- c(
+  "source_updated_at",
+  "region",
+  "target_date",
+  "date_id"
 )
 IPMA_ALERT_KEY_COLUMNS <- c(
   "source_updated_at",
@@ -433,6 +476,22 @@ SNS_HEALTH_SOURCE_LINKS <- c(
   "- INSA, FRIESA - modelação e previsão do efeito do frio extremo na saúde: https://repositorio.insa.pt/bitstream/10400.18/3703/3/Newsletter%20fevereiro%202016_FRIESA.pdf",
   "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
   "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx"
+)
+
+CLIMA_EXTREMO_SOURCE_LINKS <- c(
+  "- CLIMA EXTREMO, painel de aviso de risco em edifícios: http://climaextremo.vps.tecnico.ulisboa.pt/",
+  "- CLIMA EXTREMO, API pública de metadados: http://climaextremo.vps.tecnico.ulisboa.pt:8100/api/weather/metadata",
+  "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+  "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx",
+  "- DGS, frio - grupos vulneráveis: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/frio/recomendacoes-para-os-grupos-vulneraveis.aspx"
+)
+
+CLIMA_EXTREMO_RISK_LEVELS <- c(
+  "Sem dados" = -1,
+  "Baixo" = 0,
+  "Médio" = 1,
+  "Alto" = 2,
+  "Extremo" = 3
 )
 
 IPMA_ALERT_SOURCE_LINKS <- c(
@@ -2235,6 +2294,304 @@ write_sns_health_indices <- function(new_data) {
   list(combined = combined, latest = latest)
 }
 
+parse_clima_extremo_datetime <- function(value) {
+  value <- as_text(value)
+  if (value == "") {
+    return(as.POSIXct(NA))
+  }
+
+  value <- sub("\\.[0-9]+Z$", "Z", value)
+  as.POSIXct(value, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+}
+
+clima_extremo_target_date <- function(value) {
+  timestamp <- parse_clima_extremo_datetime(value)
+  if (is.na(timestamp)) {
+    return(substr(as_text(value), 1, 10))
+  }
+
+  format(timestamp, "%Y-%m-%d", tz = LOCAL_TZ)
+}
+
+clima_extremo_field_metadata <- function(metadata, field_name) {
+  for (field in metadata) {
+    if (field_text(field, "name") == field_name) {
+      return(field)
+    }
+  }
+
+  NULL
+}
+
+clima_extremo_range_for_value <- function(metadata, field_name, value) {
+  field <- clima_extremo_field_metadata(metadata, field_name)
+  value_num <- to_num(value)
+  if (is.null(field) || is.na(value_num) || is.null(field$ranges)) {
+    return(NULL)
+  }
+
+  for (range in rev(field$ranges)) {
+    min_value <- if (is.null(range$min)) -Inf else to_num(range$min)
+    max_value <- if (is.null(range$max)) Inf else to_num(range$max)
+    if (is.na(min_value)) {
+      min_value <- -Inf
+    }
+    if (is.na(max_value)) {
+      max_value <- Inf
+    }
+    if (min_value <= value_num && value_num <= max_value) {
+      return(range)
+    }
+  }
+
+  NULL
+}
+
+clima_extremo_risk_order <- function(label, value) {
+  label <- as_text(label)
+  if (label %in% names(CLIMA_EXTREMO_RISK_LEVELS)) {
+    return(as.character(CLIMA_EXTREMO_RISK_LEVELS[[label]]))
+  }
+
+  value_num <- to_num(value)
+  if (is.na(value_num)) {
+    return(as.character(CLIMA_EXTREMO_RISK_LEVELS[["Sem dados"]]))
+  }
+  if (value_num < 1) {
+    return(as.character(CLIMA_EXTREMO_RISK_LEVELS[["Baixo"]]))
+  }
+  if (value_num < 2) {
+    return(as.character(CLIMA_EXTREMO_RISK_LEVELS[["Médio"]]))
+  }
+  if (value_num < 3) {
+    return(as.character(CLIMA_EXTREMO_RISK_LEVELS[["Alto"]]))
+  }
+
+  as.character(CLIMA_EXTREMO_RISK_LEVELS[["Extremo"]])
+}
+
+clima_extremo_classification <- function(metadata, field_name, value) {
+  range <- clima_extremo_range_for_value(metadata, field_name, value)
+  label <- if (is.null(range)) "" else as_text(range$label)
+  color <- if (is.null(range)) "" else as_text(range$color)
+  alert <- if (is.null(range)) "" else as_text(range$alert)
+
+  if (field_name == "icaro" && label == "") {
+    order <- to_num(clima_extremo_risk_order(label, value))
+    label <- names(CLIMA_EXTREMO_RISK_LEVELS)[CLIMA_EXTREMO_RISK_LEVELS == order][1]
+  }
+
+  list(
+    label = label,
+    order = clima_extremo_risk_order(label, value),
+    color = color,
+    alert = alert
+  )
+}
+
+clima_extremo_temperature_label <- function(metadata, field_name, value) {
+  range <- clima_extremo_range_for_value(metadata, field_name, value)
+  if (is.null(range)) {
+    return(list(label = "", alert = ""))
+  }
+
+  label <- as_text(range$label)
+  if (label == "") {
+    label <- "Sem alerta"
+  }
+
+  list(label = label, alert = as_text(range$alert))
+}
+
+clima_extremo_feature_for_region <- function(map_data, region) {
+  for (collection in map_data) {
+    features <- collection$features
+    if (is.null(features) || length(features) == 0) {
+      next
+    }
+    for (feature in features) {
+      weather <- feature$weather
+      properties <- feature$properties
+      if (field_text(weather, "region") == region ||
+          field_text(properties, "region") == region) {
+        return(feature)
+      }
+    }
+  }
+
+  NULL
+}
+
+clima_extremo_thermal_context <- function(indoor_temperature, outdoor_temperature) {
+  indoor <- to_num(indoor_temperature)
+  outdoor <- to_num(outdoor_temperature)
+
+  if ((!is.na(indoor) && indoor >= 28) || (!is.na(outdoor) && outdoor >= 29)) {
+    return("calor")
+  }
+  if ((!is.na(indoor) && indoor < 18) || (!is.na(outdoor) && outdoor < 8)) {
+    return("frio")
+  }
+
+  "sem extremo térmico direto"
+}
+
+clima_extremo_recommendation_summary <- function(
+  risk_label,
+  indoor_temperature,
+  outdoor_temperature,
+  vulnerability
+) {
+  context <- clima_extremo_thermal_context(indoor_temperature, outdoor_temperature)
+  order <- to_num(clima_extremo_risk_order(risk_label, NA))
+  vulnerability_text <- if (as_text(vulnerability) == "") {
+    "vulnerabilidade sem dados"
+  } else {
+    paste0("vulnerabilidade ", as_text(vulnerability), "/24")
+  }
+
+  if (is.na(order) || order < 0) {
+    return("Sem dados suficientes do Clima Extremo para recomendação automática.")
+  }
+
+  if (order == 0) {
+    return(paste0(
+      "Risco baixo em edifícios; manter vigilância habitual de conforto térmico, ",
+      vulnerability_text,
+      "."
+    ))
+  }
+
+  if (order == 1) {
+    return(paste0(
+      "Risco médio em edifícios; reforçar vigilância de conforto térmico em casa e equipamentos, ",
+      vulnerability_text,
+      ", contexto: ",
+      context,
+      "."
+    ))
+  }
+
+  if (order == 2) {
+    return(paste0(
+      "Risco alto em edifícios; preparar medidas de proteção para ocupantes vulneráveis, ",
+      vulnerability_text,
+      ", contexto: ",
+      context,
+      "."
+    ))
+  }
+
+  paste0(
+    "Risco extremo em edifícios; ativar medidas de contingência e acompanhamento ativo dos ocupantes vulneráveis, ",
+    vulnerability_text,
+    ", contexto: ",
+    context,
+    "."
+  )
+}
+
+flatten_clima_extremo_date <- function(date_item, metadata) {
+  date_id <- field_text(date_item, "_id")
+  target_date <- clima_extremo_target_date(field_text(date_item, "date"))
+  if (date_id == "" || target_date == "") {
+    return(NULL)
+  }
+
+  map_data <- fetch_json(paste0(CLIMA_EXTREMO_MAP_URL, URLencode(date_id, reserved = TRUE)))
+  feature <- clima_extremo_feature_for_region(map_data, CLIMA_EXTREMO_REGION)
+  if (is.null(feature)) {
+    return(NULL)
+  }
+
+  weather <- feature$weather
+  risk_value <- field_text(weather, "icaro")
+  risk_classification <- clima_extremo_classification(metadata, "icaro", risk_value)
+  indoor_temperature <- field_text(weather, "tindoor")
+  outdoor_temperature <- field_text(weather, "toutdoor")
+  vulnerability <- field_text(weather, "vulnerability")
+  indoor_classification <- clima_extremo_temperature_label(
+    metadata,
+    "tindoor",
+    indoor_temperature
+  )
+
+  data.frame(
+    source_updated_at = FETCHED_AT,
+    fetched_at = FETCHED_AT,
+    location = LOCATION,
+    district = DISTRICT,
+    dico = DICO,
+    region = field_text(weather, "region"),
+    target_date = target_date,
+    date_id = date_id,
+    risk_index = risk_value,
+    risk_label = risk_classification$label,
+    risk_level_order = risk_classification$order,
+    risk_color = risk_classification$color,
+    risk_alert = risk_classification$alert,
+    indoor_temperature_c = indoor_temperature,
+    indoor_temperature_label = indoor_classification$label,
+    indoor_temperature_alert = indoor_classification$alert,
+    outdoor_temperature_c = outdoor_temperature,
+    vulnerability_index = vulnerability,
+    source_note = paste(
+      "A API Clima Extremo não devolve timestamp de atualização nem recomendações preenchidas;",
+      "source_updated_at corresponde ao momento de recolha."
+    ),
+    recommendation_summary = clima_extremo_recommendation_summary(
+      risk_classification$label,
+      indoor_temperature,
+      outdoor_temperature,
+      vulnerability
+    ),
+    source = "CLIMA EXTREMO API municipal risk forecast",
+    stringsAsFactors = FALSE
+  )
+}
+
+build_clima_extremo_risk <- function() {
+  metadata <- fetch_json(CLIMA_EXTREMO_METADATA_URL)
+  dates <- fetch_json(CLIMA_EXTREMO_DATES_URL)
+
+  rows <- lapply(dates, flatten_clima_extremo_date, metadata = metadata)
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) {
+    return(empty_frame(CLIMA_EXTREMO_COLUMNS))
+  }
+
+  risk <- bind_rows(rows)
+  risk[] <- lapply(risk, as.character)
+  risk %>%
+    arrange(source_updated_at, target_date) %>%
+    select(all_of(CLIMA_EXTREMO_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+write_clima_extremo_risk <- function(new_data) {
+  existing <- read_existing(CLIMA_EXTREMO_PATH, CLIMA_EXTREMO_COLUMNS)
+  combined <- upsert_rows(
+    existing,
+    new_data,
+    CLIMA_EXTREMO_COLUMNS,
+    CLIMA_EXTREMO_KEY_COLUMNS,
+    setdiff(CLIMA_EXTREMO_COLUMNS, "fetched_at")
+  )
+
+  combined <- combined %>%
+    arrange(source_updated_at, target_date) %>%
+    distinct(across(all_of(CLIMA_EXTREMO_KEY_COLUMNS)), .keep_all = TRUE) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  write_csv(combined, CLIMA_EXTREMO_PATH, na = "")
+
+  latest_update <- latest_source_update(combined)
+  latest <- combined[combined$source_updated_at == latest_update, , drop = FALSE]
+  write_csv(latest, CLIMA_EXTREMO_LATEST_PATH, na = "")
+
+  list(combined = combined, latest = latest)
+}
+
 weather_warning_level <- function(color) {
   color <- tolower(as_text(color))
   switch(
@@ -3371,6 +3728,188 @@ build_sns_health_daily_section <- function(rows, report_date) {
   )
 }
 
+clima_extremo_rows_for_report <- function(rows, report_date) {
+  report_date_value <- as.Date(report_date)
+  risk_dates <- as.Date(rows$target_date)
+  selected <- rows[
+    !is.na(risk_dates) & risk_dates >= report_date_value,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(selected) == 0) {
+    selected <- rows
+  }
+
+  selected %>%
+    mutate(
+      risk_level_order_num = to_num(risk_level_order),
+      target_date_value = as.Date(target_date)
+    ) %>%
+    arrange(target_date_value, desc(risk_level_order_num)) %>%
+    select(all_of(CLIMA_EXTREMO_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+clima_extremo_table_lines <- function(rows) {
+  if (nrow(rows) == 0) {
+    return("Sem dados Clima Extremo filtrados para Matosinhos.")
+  }
+
+  c(
+    "| Data | Índice de risco | Nível | Temperatura interior | Temperatura exterior | Vulnerabilidade |",
+    "|---|---:|---|---:|---:|---:|",
+    vapply(seq_len(nrow(rows)), function(i) {
+      row <- rows[i, , drop = FALSE]
+      paste0(
+        "| ",
+        as_text(row$target_date),
+        " | ",
+        display_temp(row$risk_index),
+        " | ",
+        as_text(row$risk_label),
+        " | ",
+        display_temp(row$indoor_temperature_c),
+        " ºC | ",
+        display_temp(row$outdoor_temperature_c),
+        " ºC | ",
+        display_temp(row$vulnerability_index),
+        "/24 |"
+      )
+    }, character(1))
+  )
+}
+
+highest_clima_extremo_row <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(empty_frame(CLIMA_EXTREMO_COLUMNS))
+  }
+
+  rows %>%
+    mutate(
+      risk_level_order_num = to_num(risk_level_order),
+      target_date_value = as.Date(target_date)
+    ) %>%
+    arrange(desc(risk_level_order_num), target_date_value) %>%
+    slice(1) %>%
+    select(all_of(CLIMA_EXTREMO_COLUMNS)) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+}
+
+clima_extremo_recommendations <- function(rows) {
+  if (nrow(rows) == 0) {
+    return(paste(
+      "Comunicação geral: não emitir recomendação automática com base no Clima Extremo sem validação manual; faltam dados filtrados para Matosinhos.",
+      "Grupos vulneráveis: usar os restantes indicadores meteorológicos e ambientais enquanto se aguarda atualização.",
+      "Estabelecimentos: manter planos de contingência de calor/frio disponíveis e confirmar o painel manualmente.",
+      sep = "\n\n"
+    ))
+  }
+
+  highest <- highest_clima_extremo_row(rows)
+  order <- to_num(highest$risk_level_order)
+  risk_label <- as_text(highest$risk_label)
+  context <- clima_extremo_thermal_context(
+    highest$indoor_temperature_c,
+    highest$outdoor_temperature_c
+  )
+
+  if (is.na(order) || order <= 0) {
+    return(paste(
+      "Comunicação geral: risco baixo em edifícios no painel Clima Extremo; manter vigilância habitual do conforto térmico e cruzar com avisos IPMA/SNS.",
+      "Grupos vulneráveis: manter rotinas habituais, com atenção a desconforto térmico em casa, hidratação e medicação habitual.",
+      "Estabelecimentos: manter atividades previstas, garantindo água, abrigo/sombra quando necessário e canais de comunicação.",
+      sep = "\n\n"
+    ))
+  }
+
+  context_text <- if (context == "calor") {
+    "O sinal está associado a contexto de calor; reforçar hidratação, sombra, arrefecimento seguro e redução de esforço nas horas quentes."
+  } else if (context == "frio") {
+    "O sinal está associado a contexto de frio; reforçar roupa adequada, aquecimento seguro, proteção de extremidades e vigilância respiratória/cardiovascular."
+  } else {
+    "Não há temperatura interior/exterior extrema no snapshot; interpretar o nível como sinal de vulnerabilidade e vigilância em edifícios."
+  }
+
+  if (order == 1) {
+    return(paste(
+      paste0(
+        "Comunicação geral: risco médio em edifícios para Matosinhos no Clima Extremo. ",
+        context_text,
+        " Comunicar de forma neutra e preventiva."
+      ),
+      "Grupos vulneráveis: pessoas idosas, crianças, grávidas, pessoas com doença crónica, mobilidade reduzida ou isolamento social devem ter contacto regular, água/medicação acessível e ambiente interior confortável.",
+      "Estabelecimentos: confirmar conforto térmico das salas, acesso a água, possibilidade de sombra/abrigo e adaptação de atividades exteriores se outros indicadores agravarem.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (order == 2) {
+    return(paste(
+      paste0(
+        "Comunicação geral: risco alto em edifícios para Matosinhos no Clima Extremo. ",
+        context_text,
+        " Reforçar comunicação de prevenção e reduzir exposição não essencial."
+      ),
+      "Grupos vulneráveis: contacto ativo com utentes/pessoas isoladas; verificar sintomas, hidratação/agasalho conforme contexto, medicação e condições de habitação.",
+      "Estabelecimentos: ativar medidas de contingência proporcionais, ajustar horários, garantir espaços termicamente confortáveis, pausas e acompanhamento de utentes/trabalhadores vulneráveis.",
+      sep = "\n\n"
+    ))
+  }
+
+  paste(
+    paste0(
+      "Comunicação geral: risco extremo em edifícios para Matosinhos no Clima Extremo. ",
+      context_text,
+      " Ativar comunicação de alerta e medidas de contingência."
+    ),
+    "Grupos vulneráveis: acompanhamento ativo e repetido de pessoas idosas, crianças, pessoas com doença crónica, acamadas, isoladas ou com habitação vulnerável; contactar SNS 24 ou 112 perante sinais graves.",
+    "Estabelecimentos: ativar plano de contingência, condicionar atividades exteriores, garantir espaços de abrigo/arrefecimento ou aquecimento seguro e monitorizar utentes/trabalhadores de maior risco.",
+    sep = "\n\n"
+  )
+}
+
+build_clima_extremo_daily_section <- function(rows, report_date) {
+  source_update <- latest_source_update(rows)
+  if (source_update == "") {
+    source_update <- FETCHED_AT
+  }
+
+  recommendation_row <- highest_clima_extremo_row(rows)
+
+  c(
+    "<!-- clima-extremo:start -->",
+    paste0("### Clima Extremo - risco em edifícios - previsões disponíveis em ", report_date),
+    "",
+    paste0(
+      "Fonte dos valores: CLIMA EXTREMO. Snapshot recolhido em ",
+      source_update,
+      ". A API devolve a escala e os valores municipais, mas não devolve recomendações preenchidas; as medidas abaixo cruzam o nível com recomendações DGS/INSA para calor/frio."
+    ),
+    "",
+    clima_extremo_table_lines(rows),
+    "",
+    paste0(
+      "Nível mais exigente no período: ",
+      as_text(recommendation_row$risk_label),
+      " em ",
+      as_text(recommendation_row$target_date),
+      " (índice ",
+      display_temp(recommendation_row$risk_index),
+      "; temperatura interior ",
+      display_temp(recommendation_row$indoor_temperature_c),
+      " ºC; temperatura exterior ",
+      display_temp(recommendation_row$outdoor_temperature_c),
+      " ºC; vulnerabilidade ",
+      display_temp(recommendation_row$vulnerability_index),
+      "/24). As recomendações abaixo seguem este nível."
+    ),
+    "",
+    clima_extremo_recommendations(rows),
+    "<!-- clima-extremo:end -->"
+  )
+}
+
 alert_rows_for_report <- function(alerts, report_date) {
   alert_dates <- as.Date(alerts$target_date)
   end_dates <- as.Date(substr(alerts$end_time, 1, 10))
@@ -3826,6 +4365,44 @@ update_daily_sns_health_report <- function(indices) {
   report_path
 }
 
+update_daily_clima_extremo_report <- function(risk) {
+  if (nrow(risk) == 0) {
+    return("")
+  }
+
+  report_date <- format(Sys.time(), "%Y-%m-%d", tz = LOCAL_TZ)
+  risk_dates <- as.Date(risk$target_date)
+  if (!any(!is.na(risk_dates) & risk_dates >= as.Date(report_date))) {
+    report_date <- as_text(risk$target_date[1])
+  }
+  selected <- clima_extremo_rows_for_report(risk, report_date)
+
+  dir.create(DAILY_DIR, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
+
+  if (file.exists(report_path)) {
+    existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
+  } else {
+    existing <- c(
+      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
+      "",
+      paste0("Ficheiro diário: ", report_date),
+      ""
+    )
+  }
+
+  section <- build_clima_extremo_daily_section(selected, report_date)
+  updated <- replace_marked_section_after(
+    existing,
+    section,
+    "clima-extremo",
+    "sns-health"
+  )
+  updated <- finalize_daily_report(updated, report_date)
+  writeLines(updated, report_path, useBytes = TRUE)
+  report_path
+}
+
 update_daily_uv_report <- function(uv_index) {
   if (nrow(uv_index) == 0) {
     return("")
@@ -3949,6 +4526,20 @@ run_sns_health_pipeline <- function() {
   )
 }
 
+run_clima_extremo_pipeline <- function() {
+  clima_extremo_data <- build_clima_extremo_risk()
+  clima_extremo_result <- write_clima_extremo_risk(clima_extremo_data)
+  daily_clima_extremo_report_path <- update_daily_clima_extremo_report(
+    clima_extremo_result$latest
+  )
+
+  list(
+    data = clima_extremo_data,
+    result = clima_extremo_result,
+    report_path = daily_clima_extremo_report_path
+  )
+}
+
 run_full_pipeline <- function() {
   climate_temperature_data <- build_temperature_history()
   station <- run_station_fallback_pipeline()
@@ -3989,6 +4580,7 @@ run_full_pipeline <- function() {
   daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
 
   sns_health <- run_sns_health_pipeline()
+  clima_extremo <- run_clima_extremo_pipeline()
   ipma_alerts <- run_ipma_alerts_pipeline()
 
   message(sprintf(
@@ -4002,6 +4594,7 @@ run_full_pipeline <- function() {
       "%d UTCI row(s) calculated; UTCI archive has %d row(s); UTCI report: %s.",
       "%d UV row(s) calculated; UV archive has %d row(s); UV report: %s.",
       "%d SNS/INSA health index row(s) collected; SNS/INSA archive has %d row(s); SNS/INSA report: %s.",
+      "%d Clima Extremo row(s) collected; Clima Extremo archive has %d row(s); Clima Extremo report: %s.",
       "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
     ),
     nrow(climate_temperature_data),
@@ -4028,6 +4621,9 @@ run_full_pipeline <- function() {
     nrow(sns_health$data),
     nrow(sns_health$result$combined),
     sns_health$report_path,
+    nrow(clima_extremo$data),
+    nrow(clima_extremo$result$combined),
+    clima_extremo$report_path,
     nrow(ipma_alerts$data),
     nrow(ipma_alerts$result$combined),
     ipma_alerts$report_path
@@ -4037,6 +4633,7 @@ run_full_pipeline <- function() {
 run_light_pipeline <- function() {
   station <- run_station_fallback_pipeline()
   sns_health <- run_sns_health_pipeline()
+  clima_extremo <- run_clima_extremo_pipeline()
   ipma_alerts <- run_ipma_alerts_pipeline()
 
   message(sprintf(
@@ -4044,6 +4641,7 @@ run_light_pipeline <- function() {
       "OK light - %d station observation row(s) fetched.",
       "Station observation archive has %d row(s); station daily fallback has %d row(s).",
       "%d SNS/INSA health index row(s) collected; SNS/INSA archive has %d row(s); SNS/INSA report: %s.",
+      "%d Clima Extremo row(s) collected; Clima Extremo archive has %d row(s); Clima Extremo report: %s.",
       "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
     ),
     nrow(station$observations_data),
@@ -4052,9 +4650,23 @@ run_light_pipeline <- function() {
     nrow(sns_health$data),
     nrow(sns_health$result$combined),
     sns_health$report_path,
+    nrow(clima_extremo$data),
+    nrow(clima_extremo$result$combined),
+    clima_extremo$report_path,
     nrow(ipma_alerts$data),
     nrow(ipma_alerts$result$combined),
     ipma_alerts$report_path
+  ))
+}
+
+run_clima_extremo_only_pipeline <- function() {
+  clima_extremo <- run_clima_extremo_pipeline()
+
+  message(sprintf(
+    "OK clima-extremo - %d row(s) collected; archive has %d row(s); report: %s.",
+    nrow(clima_extremo$data),
+    nrow(clima_extremo$result$combined),
+    clima_extremo$report_path
   ))
 }
 
@@ -4076,8 +4688,10 @@ if (mode == "full") {
   run_full_pipeline()
 } else if (mode == "light") {
   run_light_pipeline()
+} else if (mode %in% c("clima-extremo", "clima_extremo")) {
+  run_clima_extremo_only_pipeline()
 } else if (mode == "alerts") {
   run_alerts_pipeline()
 } else {
-  stop("Unknown IPMA run mode: ", mode, ". Use full, light or alerts.")
+  stop("Unknown IPMA run mode: ", mode, ". Use full, light, clima-extremo or alerts.")
 }

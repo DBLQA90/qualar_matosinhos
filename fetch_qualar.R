@@ -511,7 +511,15 @@ insert_marked_section <- function(content, section) {
 }
 
 insert_existing_managed_sections <- function(content, existing) {
-  markers <- c("temperatura-dsp", "onda-calor", "utci", "sns-health", "uv", "ipma-alerts")
+  markers <- c(
+    "temperatura-dsp",
+    "onda-calor",
+    "utci",
+    "sns-health",
+    "clima-extremo",
+    "uv",
+    "ipma-alerts"
+  )
   for (marker in markers) {
     content <- insert_marked_section(
       content,

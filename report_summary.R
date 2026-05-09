@@ -39,6 +39,13 @@ REPORT_SOURCE_SECTIONS <- list(
     "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
     "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx"
   ),
+  "Clima Extremo" = c(
+    "- CLIMA EXTREMO, painel de aviso de risco em edifícios: http://climaextremo.vps.tecnico.ulisboa.pt/",
+    "- CLIMA EXTREMO, API pública de metadados: http://climaextremo.vps.tecnico.ulisboa.pt:8100/api/weather/metadata",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, frio - recomendações gerais: https://www.dgs.pt/saude-ambiental/areas-de-intervencao/frio/recomendacoes-gerais.aspx",
+    "- DGS, frio - grupos vulneráveis: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/frio/recomendacoes-para-os-grupos-vulneraveis.aspx"
+  ),
   "Índice UV" = c(
     "- IPMA, Índice Ultravioleta e classes IUV: https://www.ipma.pt/pt/enciclopedia/amb.atmosfera/uv/index.html",
     "- IPMA, previsão do Índice Ultravioleta: https://www.ipma.pt/pt/otempo/prev.uv/",
@@ -589,6 +596,62 @@ summary_sns_signal <- function(report_date) {
   )
 }
 
+summary_clima_extremo_signal <- function(report_date) {
+  rows <- summary_read_csv("data/clima_extremo_matosinhos_risk_latest.csv")
+  if (nrow(rows) == 0) {
+    return(summary_signal("Clima Extremo"))
+  }
+
+  today <- summary_date_rows(rows, "target_date", report_date)
+  if (nrow(today) == 0) {
+    today <- summary_first_future_row(rows, "target_date", report_date)
+  }
+
+  future <- summary_after_date_rows(rows, "target_date", report_date)
+  future_highest <- summary_highest_row(future, "risk_level_order", "target_date")
+  today_highest <- summary_highest_row(today, "risk_level_order", "target_date")
+
+  risk_text <- function(row) {
+    if (nrow(row) == 0) {
+      return("Sem dados")
+    }
+    paste0(
+      summary_clean(row$risk_label),
+      " (",
+      summary_clean(row$risk_index),
+      ")"
+    )
+  }
+
+  driver_text <- function(row) {
+    if (nrow(row) == 0) {
+      return("sem dados")
+    }
+    paste0(
+      "interior ",
+      summary_clean(row$indoor_temperature_c),
+      " ºC; exterior ",
+      summary_clean(row$outdoor_temperature_c),
+      " ºC; vulnerabilidade ",
+      summary_clean(row$vulnerability_index),
+      "/24"
+    )
+  }
+
+  summary_signal(
+    "Clima Extremo",
+    risk_text(today_highest),
+    if (nrow(future_highest) > 0) {
+      paste0(summary_clean(future_highest$target_date), ": ", risk_text(future_highest))
+    } else {
+      "Sem previsão"
+    },
+    driver_text(today_highest),
+    summary_to_num(today_highest$risk_level_order),
+    summary_to_num(future_highest$risk_level_order)
+  )
+}
+
 summary_alert_active_rows <- function(rows, report_date) {
   if (nrow(rows) == 0) {
     return(rows)
@@ -669,6 +732,7 @@ summary_collect_signals <- function(report_date) {
     summary_heat_wave_signal(report_date),
     summary_thermal_signal(report_date),
     summary_sns_signal(report_date),
+    summary_clima_extremo_signal(report_date),
     summary_uv_signal(report_date)
   )
 }
@@ -798,6 +862,29 @@ summary_today_recommendations <- function(signals) {
     establishments <- c(
       establishments,
       "Garantir água, sombra/abrigo e possibilidade de ajustar horários ou intensidade das atividades."
+    )
+  }
+
+  if (summary_has_domain(signals, "Clima Extremo")) {
+    clima_text <- summary_domain_text(signals, "Clima Extremo")
+    clima_driver <- summary_domain_text(signals, "Clima Extremo", "driver")
+    general <- c(
+      general,
+      paste0(
+        "O Clima Extremo assinala risco em edifícios (",
+        clima_text,
+        "; ",
+        clima_driver,
+        "); reforçar vigilância de conforto térmico em casa e equipamentos."
+      )
+    )
+    vulnerable <- c(
+      vulnerable,
+      "Pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social devem ter contacto regular e ambiente interior confortável."
+    )
+    establishments <- c(
+      establishments,
+      "Confirmar conforto térmico das salas, água disponível, sombra/abrigo e possibilidade de adaptar atividades se outros indicadores agravarem."
     )
   }
 
