@@ -2,6 +2,7 @@ library(httr)
 library(jsonlite)
 library(dplyr)
 library(readr)
+source("report_summary.R", encoding = "UTF-8")
 
 DATA_DIR <- "data"
 TEMPERATURE_PATH <- file.path(DATA_DIR, "ipma_matosinhos_temperaturas.csv")
@@ -2553,7 +2554,7 @@ build_temperature_daily_section <- function(row) {
 
   content <- c(
     "<!-- temperatura-dsp:start -->",
-    paste0("## Temperatura DSP - ", target_date),
+    paste0("### Temperatura DSP - ", target_date),
     "",
     paste0(
       "Fonte dos valores: IPMA. Atualização IPMA: ",
@@ -2757,7 +2758,7 @@ build_uv_daily_section <- function(rows, report_date) {
 
   c(
     "<!-- uv:start -->",
-    paste0("## Índice UV - previsões disponíveis em ", report_date),
+    paste0("### Índice UV - previsões disponíveis em ", report_date),
     "",
     paste0(
       "Fonte dos valores: IPMA. Atualização IPMA: ",
@@ -2948,7 +2949,7 @@ build_heat_wave_daily_section <- function(rows, report_date) {
 
   c(
     "<!-- onda-calor:start -->",
-    paste0("## Onda de Calor - previsões disponíveis em ", report_date),
+    paste0("### Onda de Calor - previsões disponíveis em ", report_date),
     "",
     paste0(
       "Critério IPMA: pelo menos 6 dias consecutivos com temperatura máxima diária superior em 5 ºC à normal mensal. ",
@@ -3153,7 +3154,7 @@ build_thermal_stress_daily_section <- function(rows, report_date) {
 
   c(
     "<!-- utci:start -->",
-    paste0("## Stress térmico UTCI - previsões disponíveis em ", report_date),
+    paste0("### Stress térmico UTCI - previsões disponíveis em ", report_date),
     "",
     paste0(
       "Fonte dos valores: IPMA. Atualização IPMA: ",
@@ -3371,7 +3372,7 @@ build_sns_health_daily_section <- function(rows, report_date) {
 
   c(
     "<!-- sns-health:start -->",
-    paste0("## Índices SNS/INSA ÍCARO e FRIESA - ", report_date),
+    paste0("### Índices SNS/INSA ÍCARO e FRIESA - ", report_date),
     "",
     paste0(
       "Fonte dos valores: SNS Transparência/INSA. Atualizações de origem consideradas: ",
@@ -3632,7 +3633,7 @@ build_ipma_alerts_daily_section <- function(rows, report_date) {
 
   c(
     "<!-- ipma-alerts:start -->",
-    paste0("## Avisos IPMA - ", report_date),
+    paste0("### Avisos IPMA - ", report_date),
     "",
     paste0(
       "Fonte dos valores: IPMA. Atualizações de origem consideradas: ",
@@ -3734,6 +3735,7 @@ update_daily_temperature_report <- function(alerts) {
 
   section <- build_temperature_daily_section(selected[1, , drop = FALSE])
   updated <- replace_managed_section(existing, section)
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3771,6 +3773,7 @@ update_daily_heat_wave_report <- function(heat_waves) {
     "onda-calor",
     "temperatura-dsp"
   )
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3808,6 +3811,7 @@ update_daily_thermal_stress_report <- function(thermal_stress) {
     "utci",
     "onda-calor"
   )
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3841,6 +3845,7 @@ update_daily_sns_health_report <- function(indices) {
     "sns-health",
     "utci"
   )
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3873,6 +3878,7 @@ update_daily_uv_report <- function(uv_index) {
 
   section <- build_uv_daily_section(selected, report_date)
   updated <- replace_marked_section(existing, section, "uv")
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }
@@ -3910,6 +3916,7 @@ update_daily_ipma_alerts_report <- function(alerts) {
 
   section <- build_ipma_alerts_daily_section(selected, report_date)
   updated <- replace_marked_section(existing, section, "ipma-alerts")
+  updated <- replace_operational_summary(updated, report_date)
   writeLines(updated, report_path, useBytes = TRUE)
   report_path
 }

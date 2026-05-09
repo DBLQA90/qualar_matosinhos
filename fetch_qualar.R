@@ -2,6 +2,7 @@ library(httr)
 library(jsonlite)
 library(dplyr)
 library(readr)
+source("report_summary.R", encoding = "UTF-8")
 
 CSV_PATH <- "qualar_matosinhos.csv"
 DAILY_DIR <- "daily"
@@ -431,7 +432,7 @@ section_for_day <- function(row, title) {
   body <- recommendation_text(row)
 
   c(
-    paste0("## ", title, " - ", date_text),
+    paste0("### Qualidade do ar - ", title, " - ", date_text),
     "",
     paste0("Fonte dos valores: ", source, "."),
     "",
@@ -455,9 +456,11 @@ build_daily_report <- function(predictions, report_date) {
   }
 
   content <- c(
-    paste0("# Qualidade do ar - ", LOCATION),
+    paste0("# Boletim diário - ", LOCATION),
     "",
     paste0("Ficheiro diário: ", report_date),
+    "",
+    "## Detalhe por indicador",
     "",
     "Escala operacional usada: Verde (0), Amarelo (1), Laranja (2), Vermelho (3), conforme a tabela de estratificação por poluente indicada para O₃, NO₂, PM10 e PM2.5.",
     ""
@@ -531,6 +534,7 @@ write_daily_report <- function(predictions, report_date) {
     content <- insert_existing_managed_sections(content, existing)
   }
 
+  content <- replace_operational_summary(content, report_date)
   writeLines(content, report_path, useBytes = TRUE)
   report_path
 }
