@@ -2,6 +2,10 @@ SUMMARY_MARKER <- "sintese"
 SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
 
 REPORT_SOURCE_SECTIONS <- list(
+  "Nível local sugerido" = c(
+    "- Plano Local de Preparação e Resposta Sazonal em Saúde da ULSM 2026-2027 (documento interno fornecido pela USP).",
+    "- Plano Nacional de Preparação e Resposta Sazonal em Saúde 2026-2027: https://www.sns.min-saude.pt/wp-content/uploads/2026/04/Plano-Sazonal-26_27.pdf"
+  ),
   "Qualidade do ar" = c(
     "- APA/DGS, Índice QualAr e classificação por poluente: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/qualidade-do-ar-ambiente/indice-de-qualidade-do-ar.aspx",
     "- DGS, recomendações de saúde para níveis Fraco e Mau: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/qualidade-do-ar-ambiente/recomendacoes-de-saude.aspx",
@@ -760,6 +764,208 @@ summary_global_level <- function(signals) {
   "Alerta"
 }
 
+summary_order_value <- function(value) {
+  if (is.null(value) || length(value) == 0 || is.na(value)) {
+    return(-1)
+  }
+
+  as.numeric(value)
+}
+
+summary_signal_planning_order <- function(signal) {
+  max(
+    summary_order_value(signal$today_order),
+    summary_order_value(signal$future_order),
+    na.rm = TRUE
+  )
+}
+
+summary_local_risk_level_label <- function(level) {
+  switch(
+    as.character(level),
+    "0" = "Nível 0 - Verde - Preparação",
+    "1" = "Nível 1 - Amarelo - Vigilância reforçada",
+    "2" = "Nível 2 - Laranja - Resposta reforçada",
+    "3" = "Nível 3 - Vermelho - Emergência",
+    "Nível indeterminado"
+  )
+}
+
+summary_local_risk_domain_level <- function(signal) {
+  order <- summary_signal_planning_order(signal)
+  if (is.na(order) || order <= 0) {
+    return(list(level = 0, critical = FALSE))
+  }
+
+  domain <- signal$domain
+  if (domain %in% c("Avisos IPMA", "Qualidade do ar", "Clima Extremo")) {
+    return(list(level = min(3, max(1, floor(order))), critical = order >= 3))
+  }
+
+  if (domain == "ÍCARO/FRIESA") {
+    if (order >= 4) {
+      return(list(level = 3, critical = TRUE))
+    }
+    if (order >= 2) {
+      return(list(level = 2, critical = FALSE))
+    }
+    return(list(level = 1, critical = FALSE))
+  }
+
+  if (domain %in% c("Temperatura DSP", "Onda de calor")) {
+    if (order >= 2) {
+      return(list(level = 2, critical = FALSE))
+    }
+    return(list(level = 1, critical = FALSE))
+  }
+
+  if (domain == "Stress térmico UTCI") {
+    if (order >= 5) {
+      return(list(level = 3, critical = TRUE))
+    }
+    if (order >= 3) {
+      return(list(level = 2, critical = FALSE))
+    }
+    return(list(level = 1, critical = FALSE))
+  }
+
+  if (domain == "Índice UV") {
+    if (order >= 4) {
+      return(list(level = 2, critical = FALSE))
+    }
+    if (order >= 2) {
+      return(list(level = 1, critical = FALSE))
+    }
+    return(list(level = 0, critical = FALSE))
+  }
+
+  list(level = min(3, max(1, floor(order))), critical = FALSE)
+}
+
+summary_local_risk_candidates <- function(signals) {
+  rows <- lapply(signals, function(signal) {
+    mapped <- summary_local_risk_domain_level(signal)
+    if (mapped$level <= 0) {
+      return(NULL)
+    }
+
+    data.frame(
+      domain = signal$domain,
+      level = mapped$level,
+      level_label = summary_local_risk_level_label(mapped$level),
+      critical = mapped$critical,
+      today = signal$today,
+      future = signal$future,
+      driver = signal$driver,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) {
+    return(data.frame(
+      domain = character(),
+      level = numeric(),
+      level_label = character(),
+      critical = logical(),
+      today = character(),
+      future = character(),
+      driver = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  do.call(rbind, rows)
+}
+
+summary_local_risk_assessment <- function(signals) {
+  candidates <- summary_local_risk_candidates(signals)
+  if (nrow(candidates) == 0) {
+    return(list(
+      level = 0,
+      label = summary_local_risk_level_label(0),
+      candidates = candidates,
+      reason = "sem indicadores ambientais/epidemiológicos disponíveis acima da vigilância habitual",
+      limitation = paste(
+        "Não integra ainda indicadores assistenciais internos da ULSM",
+        "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
+      )
+    ))
+  }
+
+  critical <- candidates[candidates$critical, , drop = FALSE]
+  selected <- if (nrow(critical) > 0) {
+    critical
+  } else {
+    candidates
+  }
+  level <- max(selected$level, na.rm = TRUE)
+  selected <- selected[selected$level == level, , drop = FALSE]
+
+  trigger_text <- paste(unique(selected$domain), collapse = ", ")
+  if (nrow(critical) > 0) {
+    reason <- paste0("critério crítico/sinal extremo nos indicadores disponíveis: ", trigger_text)
+  } else if (nrow(candidates) >= 2) {
+    reason <- paste0(
+      nrow(candidates),
+      " indicadores relevantes em simultâneo, conforme lógica do plano local: ",
+      paste(unique(candidates$domain), collapse = ", ")
+    )
+  } else {
+    reason <- paste0(
+      "um indicador relevante isolado (",
+      trigger_text,
+      "); a ativação formal deve confirmar nível nacional, critérios assistenciais ou segundo indicador"
+    )
+  }
+
+  list(
+    level = level,
+    label = summary_local_risk_level_label(level),
+    candidates = candidates[order(-candidates$level, candidates$domain), , drop = FALSE],
+    reason = reason,
+    limitation = paste(
+      "Não integra ainda indicadores assistenciais internos da ULSM",
+      "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
+    )
+  )
+}
+
+summary_local_risk_lines <- function(assessment) {
+  lines <- c(
+    paste0("Nível local sugerido com dados disponíveis: ", assessment$label, "."),
+    paste0("Justificação: ", assessment$reason, "."),
+    paste0("Limitação: ", assessment$limitation)
+  )
+
+  candidates <- assessment$candidates
+  if (nrow(candidates) == 0) {
+    return(lines)
+  }
+
+  c(
+    lines,
+    "",
+    "Indicadores considerados para esta sugestão:",
+    vapply(seq_len(nrow(candidates)), function(i) {
+      row <- candidates[i, , drop = FALSE]
+      paste0(
+        "- ",
+        row$domain,
+        ": ",
+        row$level_label,
+        " (hoje ",
+        row$today,
+        "; próximos dias ",
+        row$future,
+        "; motivo: ",
+        row$driver,
+        ")."
+      )
+    }, character(1))
+  )
+}
+
 summary_active_factor_lines <- function(signals) {
   active <- Filter(function(signal) {
     (!is.na(signal$today_order) && signal$today_order > 0) ||
@@ -996,6 +1202,7 @@ summary_table_lines <- function(signals) {
 build_operational_summary_section <- function(report_date) {
   signals <- summary_collect_signals(report_date)
   global_level <- summary_global_level(signals)
+  local_risk <- summary_local_risk_assessment(signals)
   generated_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
   c(
@@ -1007,6 +1214,10 @@ build_operational_summary_section <- function(report_date) {
     "",
     "Principais fatores:",
     summary_active_factor_lines(signals),
+    "",
+    "## Nível local sugerido",
+    "",
+    summary_local_risk_lines(local_risk),
     "",
     "## Recomendação para hoje",
     "",
