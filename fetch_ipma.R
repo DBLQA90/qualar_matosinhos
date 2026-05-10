@@ -550,6 +550,7 @@ fetch_text <- function(url) {
   response <- GET(
     url,
     user_agent("qualar-matosinhos/1.0"),
+    config(connecttimeout = 20),
     timeout(30)
   )
   stop_for_status(response)
@@ -2554,7 +2555,21 @@ build_clima_extremo_risk <- function() {
   metadata <- fetch_json(CLIMA_EXTREMO_METADATA_URL)
   dates <- fetch_json(CLIMA_EXTREMO_DATES_URL)
 
-  rows <- lapply(dates, flatten_clima_extremo_date, metadata = metadata)
+  rows <- lapply(dates, function(date_item) {
+    tryCatch(
+      flatten_clima_extremo_date(date_item, metadata = metadata),
+      error = function(error) {
+        warning(
+          "Clima Extremo: a previsão ",
+          field_text(date_item, "_id"),
+          " foi ignorada: ",
+          conditionMessage(error),
+          call. = FALSE
+        )
+        NULL
+      }
+    )
+  })
   rows <- Filter(Negate(is.null), rows)
   if (length(rows) == 0) {
     return(empty_frame(CLIMA_EXTREMO_COLUMNS))
@@ -2779,6 +2794,7 @@ write_ipma_alerts <- function(new_data) {
   latest_updates <- combined %>%
     group_by(alert_source) %>%
     filter(source_updated_at == max(source_updated_at, na.rm = TRUE)) %>%
+    filter(fetched_at == max(fetched_at, na.rm = TRUE)) %>%
     ungroup() %>%
     arrange(alert_source, target_date, alert_type) %>%
     as.data.frame(stringsAsFactors = FALSE)
@@ -4527,16 +4543,69 @@ run_sns_health_pipeline <- function() {
 }
 
 run_clima_extremo_pipeline <- function() {
-  clima_extremo_data <- build_clima_extremo_risk()
-  clima_extremo_result <- write_clima_extremo_risk(clima_extremo_data)
-  daily_clima_extremo_report_path <- update_daily_clima_extremo_report(
-    clima_extremo_result$latest
-  )
+  tryCatch(
+    {
+      clima_extremo_data <- build_clima_extremo_risk()
+      clima_extremo_result <- write_clima_extremo_risk(clima_extremo_data)
+      daily_clima_extremo_report_path <- update_daily_clima_extremo_report(
+        clima_extremo_result$latest
+      )
 
-  list(
-    data = clima_extremo_data,
-    result = clima_extremo_result,
-    report_path = daily_clima_extremo_report_path
+      list(
+        data = clima_extremo_data,
+        result = clima_extremo_result,
+        report_path = daily_clima_extremo_report_path,
+        used_cache = FALSE,
+        error = ""
+      )
+    },
+    error = function(error) {
+      warning(
+        "Clima Extremo indisponível; a usar cache se existir: ",
+        conditionMessage(error),
+        call. = FALSE
+      )
+
+      combined <- read_existing(CLIMA_EXTREMO_PATH, CLIMA_EXTREMO_COLUMNS)
+      latest <- read_existing(CLIMA_EXTREMO_LATEST_PATH, CLIMA_EXTREMO_COLUMNS)
+      if (nrow(latest) == 0 && nrow(combined) > 0) {
+        latest_update <- latest_source_update(combined)
+        latest <- combined[
+          combined$source_updated_at == latest_update,
+          ,
+          drop = FALSE
+        ]
+        if (nrow(latest) > 0) {
+          write_csv(latest, CLIMA_EXTREMO_LATEST_PATH, na = "")
+        }
+      }
+
+      daily_clima_extremo_report_path <- tryCatch(
+        {
+          if (nrow(latest) > 0) {
+            update_daily_clima_extremo_report(latest)
+          } else {
+            ""
+          }
+        },
+        error = function(report_error) {
+          warning(
+            "Clima Extremo: não foi possível atualizar a secção diária com cache: ",
+            conditionMessage(report_error),
+            call. = FALSE
+          )
+          ""
+        }
+      )
+
+      list(
+        data = empty_frame(CLIMA_EXTREMO_COLUMNS),
+        result = list(combined = combined, latest = latest),
+        report_path = daily_clima_extremo_report_path,
+        used_cache = TRUE,
+        error = conditionMessage(error)
+      )
+    }
   )
 }
 

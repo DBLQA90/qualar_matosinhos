@@ -11,6 +11,9 @@ concurrency:
   group: matosinhos-data-push
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   fetch:
     runs-on: ubuntu-latest

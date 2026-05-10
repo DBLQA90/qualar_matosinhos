@@ -966,6 +966,30 @@ summary_local_risk_lines <- function(assessment) {
   )
 }
 
+summary_operational_action <- function(level) {
+  if (is.na(level) || level <= 0) {
+    return("Manter rotina e vigilância diária dos indicadores.")
+  }
+  if (level == 1) {
+    return("Manter atividades previstas, com vigilância reforçada e adaptação prudente de atividades exteriores ou de grupos vulneráveis.")
+  }
+  if (level == 2) {
+    return("Preparar resposta reforçada, rever recursos e condicionar atividades de maior exposição enquanto persistirem os sinais.")
+  }
+
+  "Ativar resposta de emergência, comunicação dirigida e acompanhamento ativo de pessoas e estruturas vulneráveis."
+}
+
+summary_local_risk_snapshot_lines <- function(assessment, global_level) {
+  c(
+    paste0("**Estado hoje:** ", global_level, "."),
+    paste0("**Nível local sugerido (hoje e horizonte de previsão):** ", assessment$label, "."),
+    paste0("**Conduta operacional:** ", summary_operational_action(assessment$level)),
+    paste0("**Justificação:** ", assessment$reason, "."),
+    paste0("**Limitação:** ", assessment$limitation)
+  )
+}
+
 summary_active_factor_lines <- function(signals) {
   active <- Filter(function(signal) {
     (!is.na(signal$today_order) && signal$today_order > 0) ||
@@ -976,6 +1000,9 @@ summary_active_factor_lines <- function(signals) {
     return("- Sem sinais relevantes acima da vigilância habitual.")
   }
 
+  active_order <- vapply(active, summary_signal_planning_order, numeric(1))
+  active <- active[order(-active_order)]
+
   vapply(active, function(signal) {
     paste0(
       "- ",
@@ -984,6 +1011,8 @@ summary_active_factor_lines <- function(signals) {
       signal$today,
       "; próximos dias ",
       signal$future,
+      "; motivo: ",
+      signal$driver,
       "."
     )
   }, character(1))
@@ -1026,7 +1055,7 @@ summary_today_recommendations <- function(signals) {
     )
     vulnerable <- c(
       vulnerable,
-      "Antecipar contacto com pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social se houver deslocações/atividades exteriores."
+      "Evitar deslocações ou atividades exteriores de maior exposição durante precipitação forte/trovoada; confirmar contacto regular com pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social."
     )
     establishments <- c(
       establishments,
@@ -1086,7 +1115,7 @@ summary_today_recommendations <- function(signals) {
     )
     vulnerable <- c(
       vulnerable,
-      "Pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social devem ter contacto regular e ambiente interior confortável."
+      "Garantir ambiente interior confortável, água e medicação acessível para pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social."
     )
     establishments <- c(
       establishments,
@@ -1122,7 +1151,7 @@ summary_today_recommendations <- function(signals) {
     )
     vulnerable <- c(
       vulnerable,
-      "Crianças, pessoas com pele clara, antecedentes de cancro cutâneo, doença ocular ou medicação fotossensibilizante devem reforçar proteção."
+      "Crianças, pessoas com pele clara, antecedentes de cancro cutâneo, doença ocular ou medicação fotossensibilizante devem reforçar chapéu, óculos UV, roupa protetora e protetor solar."
     )
     establishments <- c(
       establishments,
@@ -1149,11 +1178,11 @@ summary_today_recommendations <- function(signals) {
   }
 
   c(
-    paste0("Comunicação geral: ", general),
+    paste0("**Comunicação geral:** ", general),
     "",
-    paste0("Grupos vulneráveis: ", vulnerable),
+    paste0("**Grupos vulneráveis:** ", vulnerable),
     "",
-    paste0("Estabelecimentos: ", establishments)
+    paste0("**Estabelecimentos:** ", establishments)
   )
 }
 
@@ -1165,6 +1194,9 @@ summary_future_lines <- function(signals) {
   if (length(future_active) == 0) {
     return("- Sem agravamento relevante identificado nos próximos dias disponíveis.")
   }
+
+  future_order <- vapply(future_active, summary_signal_planning_order, numeric(1))
+  future_active <- future_active[order(-future_order)]
 
   vapply(future_active, function(signal) {
     paste0(
@@ -1210,20 +1242,18 @@ build_operational_summary_section <- function(report_date) {
     "## Síntese operacional",
     "",
     paste0("Data do boletim: ", report_date, ". Síntese gerada em ", generated_at, "."),
-    paste0("Nível global do dia: ", global_level, "."),
     "",
-    "Principais fatores:",
-    summary_active_factor_lines(signals),
+    summary_local_risk_snapshot_lines(local_risk, global_level),
     "",
-    "## Nível local sugerido",
-    "",
-    summary_local_risk_lines(local_risk),
-    "",
-    "## Recomendação para hoje",
+    "## O que recomendar hoje",
     "",
     summary_today_recommendations(signals),
     "",
-    "## Amanhã e próximos dias",
+    "## Sinais que justificam",
+    "",
+    summary_active_factor_lines(signals),
+    "",
+    "## Próximos dias a vigiar",
     "",
     summary_future_lines(signals),
     "",
