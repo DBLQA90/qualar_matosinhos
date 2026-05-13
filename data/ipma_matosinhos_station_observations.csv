@@ -364,3 +364,7 @@ datetime_utc,datetime_local,date_local,station_id,station_name,temperature_c,sou
 2026-05-13T09:00:00Z,2026-05-13T10:00:00+0100,2026-05-13,1210649,S. Gens,16.2,IPMA station hourly observations,2026-05-13T12:25:10Z
 2026-05-13T10:00:00Z,2026-05-13T11:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",16,IPMA station hourly observations,2026-05-13T12:25:10Z
 2026-05-13T11:00:00Z,2026-05-13T12:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",16.8,IPMA station hourly observations,2026-05-13T12:25:10Z
+2026-05-13T12:00:00Z,2026-05-13T13:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",17.6,IPMA station hourly observations,2026-05-13T16:36:51Z
+2026-05-13T13:00:00Z,2026-05-13T14:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",18.4,IPMA station hourly observations,2026-05-13T16:36:51Z
+2026-05-13T14:00:00Z,2026-05-13T15:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",18.3,IPMA station hourly observations,2026-05-13T16:36:51Z
+2026-05-13T15:00:00Z,2026-05-13T16:00:00+0100,2026-05-13,1200545,"Porto, Pedras Rubras",18.1,IPMA station hourly observations,2026-05-13T16:36:51Z
