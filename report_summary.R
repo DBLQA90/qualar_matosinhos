@@ -619,10 +619,18 @@ summary_clima_extremo_signal <- function(report_date) {
     if (nrow(row) == 0) {
       return("Sem dados")
     }
+    order <- summary_to_num(row$risk_level_order)
+    raw_value <- summary_clean(row$risk_index, "")
+    if (!is.na(order) && order < 0) {
+      if (raw_value != "") {
+        return(paste0("Sem dados (valor fora da escala: ", raw_value, ")"))
+      }
+      return("Sem dados")
+    }
     paste0(
       summary_clean(row$risk_label),
       " (",
-      summary_clean(row$risk_index),
+      raw_value,
       ")"
     )
   }
@@ -631,7 +639,14 @@ summary_clima_extremo_signal <- function(report_date) {
     if (nrow(row) == 0) {
       return("sem dados")
     }
+    order <- summary_to_num(row$risk_level_order)
+    raw_value <- summary_clean(row$risk_index, "")
+    prefix <- ""
+    if (!is.na(order) && order < 0 && raw_value != "") {
+      prefix <- paste0("risco bruto ", raw_value, " fora da escala; ")
+    }
     paste0(
+      prefix,
       "interior ",
       summary_clean(row$indoor_temperature_c),
       " ºC; exterior ",

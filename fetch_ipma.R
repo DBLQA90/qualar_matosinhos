@@ -2348,6 +2348,46 @@ clima_extremo_range_for_value <- function(metadata, field_name, value) {
   NULL
 }
 
+clima_extremo_range_bounds <- function(metadata, field_name) {
+  field <- clima_extremo_field_metadata(metadata, field_name)
+  if (is.null(field) || is.null(field$ranges) || length(field$ranges) == 0) {
+    return(NULL)
+  }
+
+  min_values <- vapply(field$ranges, function(range) {
+    value <- if (is.null(range$min)) -Inf else to_num(range$min)
+    if (is.na(value)) {
+      -Inf
+    } else {
+      value
+    }
+  }, numeric(1))
+
+  max_values <- vapply(field$ranges, function(range) {
+    value <- if (is.null(range$max)) Inf else to_num(range$max)
+    if (is.na(value)) {
+      Inf
+    } else {
+      value
+    }
+  }, numeric(1))
+
+  list(
+    min = min(min_values, na.rm = TRUE),
+    max = max(max_values, na.rm = TRUE)
+  )
+}
+
+clima_extremo_outside_declared_scale <- function(metadata, field_name, value) {
+  bounds <- clima_extremo_range_bounds(metadata, field_name)
+  value_num <- to_num(value)
+  if (is.null(bounds) || is.na(value_num)) {
+    return(FALSE)
+  }
+
+  value_num < bounds$min || value_num > bounds$max
+}
+
 clima_extremo_risk_order <- function(label, value) {
   label <- as_text(label)
   if (label %in% names(CLIMA_EXTREMO_RISK_LEVELS)) {
@@ -2355,7 +2395,7 @@ clima_extremo_risk_order <- function(label, value) {
   }
 
   value_num <- to_num(value)
-  if (is.na(value_num)) {
+  if (is.na(value_num) || value_num < 0 || value_num > 4) {
     return(as.character(CLIMA_EXTREMO_RISK_LEVELS[["Sem dados"]]))
   }
   if (value_num < 1) {
@@ -2372,6 +2412,17 @@ clima_extremo_risk_order <- function(label, value) {
 }
 
 clima_extremo_classification <- function(metadata, field_name, value) {
+  if (field_name == "icaro" &&
+      clima_extremo_outside_declared_scale(metadata, field_name, value)) {
+    return(list(
+      label = "Sem dados",
+      order = as.character(CLIMA_EXTREMO_RISK_LEVELS[["Sem dados"]]),
+      color = "",
+      alert = "FALSE",
+      invalid = TRUE
+    ))
+  }
+
   range <- clima_extremo_range_for_value(metadata, field_name, value)
   label <- if (is.null(range)) "" else as_text(range$label)
   color <- if (is.null(range)) "" else as_text(range$color)
@@ -2386,7 +2437,8 @@ clima_extremo_classification <- function(metadata, field_name, value) {
     label = label,
     order = clima_extremo_risk_order(label, value),
     color = color,
-    alert = alert
+    alert = alert,
+    invalid = FALSE
   )
 }
 
@@ -2508,6 +2560,7 @@ flatten_clima_extremo_date <- function(date_item, metadata) {
   weather <- feature$weather
   risk_value <- field_text(weather, "icaro")
   risk_classification <- clima_extremo_classification(metadata, "icaro", risk_value)
+  risk_outside_scale <- isTRUE(risk_classification$invalid)
   indoor_temperature <- field_text(weather, "tindoor")
   outdoor_temperature <- field_text(weather, "toutdoor")
   vulnerability <- field_text(weather, "vulnerability")
@@ -2516,6 +2569,32 @@ flatten_clima_extremo_date <- function(date_item, metadata) {
     "tindoor",
     indoor_temperature
   )
+  source_note <- paste(
+    "A API Clima Extremo não devolve timestamp de atualização nem recomendações preenchidas;",
+    "source_updated_at corresponde ao momento de recolha."
+  )
+  recommendation_summary <- clima_extremo_recommendation_summary(
+    risk_classification$label,
+    indoor_temperature,
+    outdoor_temperature,
+    vulnerability
+  )
+
+  if (risk_outside_scale) {
+    source_note <- paste(
+      source_note,
+      paste0(
+        "Valor bruto do índice de risco (",
+        risk_value,
+        ") fora da escala declarada pela API para icaro; não usado como alerta automático."
+      )
+    )
+    recommendation_summary <- paste0(
+      "Índice de risco Clima Extremo fora da escala declarada pela API (valor bruto ",
+      risk_value,
+      "); manter leitura contextual de temperatura interior/exterior e vulnerabilidade, sem acionar alerta automático."
+    )
+  }
 
   data.frame(
     source_updated_at = FETCHED_AT,
@@ -2536,16 +2615,8 @@ flatten_clima_extremo_date <- function(date_item, metadata) {
     indoor_temperature_alert = indoor_classification$alert,
     outdoor_temperature_c = outdoor_temperature,
     vulnerability_index = vulnerability,
-    source_note = paste(
-      "A API Clima Extremo não devolve timestamp de atualização nem recomendações preenchidas;",
-      "source_updated_at corresponde ao momento de recolha."
-    ),
-    recommendation_summary = clima_extremo_recommendation_summary(
-      risk_classification$label,
-      indoor_temperature,
-      outdoor_temperature,
-      vulnerability
-    ),
+    source_note = source_note,
+    recommendation_summary = recommendation_summary,
     source = "CLIMA EXTREMO API municipal risk forecast",
     stringsAsFactors = FALSE
   )
@@ -3830,7 +3901,20 @@ clima_extremo_recommendations <- function(rows) {
     highest$outdoor_temperature_c
   )
 
-  if (is.na(order) || order <= 0) {
+  if (is.na(order) || order < 0) {
+    return(paste(
+      paste0(
+        "Comunicação geral: o Clima Extremo devolveu um índice bruto fora da escala declarada (",
+        display_temp(highest$risk_index),
+        "); não emitir recomendação automática baseada neste nível e cruzar a decisão com IPMA/SNS e observação local."
+      ),
+      "Grupos vulneráveis: manter vigilância proporcional aos restantes indicadores disponíveis; se houver desconforto térmico, doença crónica, isolamento ou habitação vulnerável, reforçar contacto e apoio prático.",
+      "Estabelecimentos: manter planos de contingência disponíveis e confirmar conforto térmico, água, abrigo/sombra e canais de comunicação, sem ativar medidas extraordinárias só por este valor bruto.",
+      sep = "\n\n"
+    ))
+  }
+
+  if (order == 0) {
     return(paste(
       "Comunicação geral: risco baixo em edifícios no painel Clima Extremo; manter vigilância habitual do conforto térmico e cruzar com avisos IPMA/SNS.",
       "Grupos vulneráveis: manter rotinas habituais, com atenção a desconforto térmico em casa, hidratação e medicação habitual.",
@@ -3892,6 +3976,26 @@ build_clima_extremo_daily_section <- function(rows, report_date) {
   }
 
   recommendation_row <- highest_clima_extremo_row(rows)
+  recommendation_order <- to_num(recommendation_row$risk_level_order)
+  has_out_of_scale <- any(
+    to_num(rows$risk_level_order) < 0 &
+      vapply(rows$risk_index, function(value) as_text(value) != "", logical(1)),
+    na.rm = TRUE
+  )
+  validation_note <- if (has_out_of_scale) {
+    paste0(
+      "Nota de validação: a API declara escala própria para o campo icaro, mas devolveu valor bruto ",
+      display_temp(recommendation_row$risk_index),
+      "; este valor fica documentado, mas não é usado como alerta automático."
+    )
+  } else {
+    character()
+  }
+  recommendation_followup <- if (is.na(recommendation_order) || recommendation_order < 0) {
+    "As recomendações abaixo são prudenciais e não tratam este valor como alerta acionável."
+  } else {
+    "As recomendações abaixo seguem este nível."
+  }
 
   c(
     "<!-- clima-extremo:start -->",
@@ -3905,6 +4009,8 @@ build_clima_extremo_daily_section <- function(rows, report_date) {
     "",
     clima_extremo_table_lines(rows),
     "",
+    validation_note,
+    if (length(validation_note) > 0) "" else character(),
     paste0(
       "Nível mais exigente no período: ",
       as_text(recommendation_row$risk_label),
@@ -3918,7 +4024,8 @@ build_clima_extremo_daily_section <- function(rows, report_date) {
       display_temp(recommendation_row$outdoor_temperature_c),
       " ºC; vulnerabilidade ",
       display_temp(recommendation_row$vulnerability_index),
-      "/24). As recomendações abaixo seguem este nível."
+      "/24). ",
+      recommendation_followup
     ),
     "",
     clima_extremo_recommendations(rows),
