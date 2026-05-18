@@ -54,6 +54,8 @@ LOCATION <- "Matosinhos"
 DISTRICT <- "Porto"
 DICO <- "1308"
 GLOBAL_ID_LOCAL <- "1130800"
+UV_FALLBACK_GLOBAL_ID_LOCAL <- "1131200"
+UV_FALLBACK_LOCATION <- "Porto"
 LATITUDE <- "41.1805"
 LONGITUDE <- "-8.6810"
 WARNING_AREA_ID <- "PTO"
@@ -69,6 +71,7 @@ TMAX_URL <- paste0(
   "/open-data/observation/climate/temperature-max/porto/mtxmx-1308-matosinhos.csv"
 )
 FORECAST_URL <- paste0(IPMA_BASE, "/public-data/forecast/aggregate/1130800.json")
+UV_FORECAST_URL <- paste0(IPMA_BASE, "/open-data/forecast/meteorology/uv/uv.json")
 STATION_OBSERVATIONS_URL <- paste0(
   IPMA_BASE,
   "/open-data/observation/meteorology/stations/observations.json"
@@ -1464,7 +1467,34 @@ uv_recommendation_summary <- function(level) {
   )
 }
 
-build_uv_index <- function(latest_forecasts) {
+build_uv_row <- function(
+  source_updated_at,
+  target_date,
+  uv_value,
+  global_id_local,
+  source
+) {
+  classification <- classify_uv(uv_value)
+
+  data.frame(
+    source_updated_at = source_updated_at,
+    fetched_at = FETCHED_AT,
+    location = LOCATION,
+    district = DISTRICT,
+    global_id_local = global_id_local,
+    target_date = target_date,
+    uv_index = uv_value,
+    uv_level = classification$level,
+    uv_level_order = classification$order,
+    uv_color = classification$color,
+    protection_required = classification$protection,
+    recommendation_summary = uv_recommendation_summary(classification$level),
+    source = source,
+    stringsAsFactors = FALSE
+  )
+}
+
+build_uv_index_from_forecasts <- function(latest_forecasts) {
   daily_forecasts <- daily_forecast_rows(latest_forecasts)
   source_update <- latest_source_update(daily_forecasts)
 
@@ -1473,30 +1503,104 @@ build_uv_index <- function(latest_forecasts) {
   }
 
   rows <- lapply(seq_len(nrow(daily_forecasts)), function(i) {
-    uv_value <- field_text(as.list(daily_forecasts[i, , drop = FALSE]), "uv_index")
-    classification <- classify_uv(uv_value)
-
-    data.frame(
+    build_uv_row(
       source_updated_at = source_update,
-      fetched_at = FETCHED_AT,
-      location = LOCATION,
-      district = DISTRICT,
-      global_id_local = GLOBAL_ID_LOCAL,
       target_date = as_text(daily_forecasts$forecast_date[i]),
-      uv_index = uv_value,
-      uv_level = classification$level,
-      uv_level_order = classification$order,
-      uv_color = classification$color,
-      protection_required = classification$protection,
-      recommendation_summary = uv_recommendation_summary(classification$level),
-      source = "IPMA public-data forecast aggregate daily UV index",
-      stringsAsFactors = FALSE
+      uv_value = field_text(as.list(daily_forecasts[i, , drop = FALSE]), "uv_index"),
+      global_id_local = GLOBAL_ID_LOCAL,
+      source = "IPMA public-data forecast aggregate daily UV index"
     )
   })
 
   uv <- bind_rows(rows)
   uv[] <- lapply(uv, as.character)
   uv[, UV_INDEX_COLUMNS]
+}
+
+has_any_uv_index_value <- function(rows) {
+  nrow(rows) > 0 &&
+    any(vapply(seq_len(nrow(rows)), function(i) {
+      has_uv_index_value(rows[i, , drop = FALSE])
+    }, logical(1)))
+}
+
+fetch_uv_endpoint <- function() {
+  tryCatch(
+    fetch_json(UV_FORECAST_URL),
+    error = function(e) {
+      message("UV endpoint unavailable or empty: ", conditionMessage(e))
+      list()
+    }
+  )
+}
+
+build_uv_index_from_endpoint <- function() {
+  api_data <- fetch_uv_endpoint()
+  if (length(api_data) == 0) {
+    return(empty_frame(UV_INDEX_COLUMNS))
+  }
+
+  global_ids <- vapply(api_data, function(item) {
+    field_text(item, "globalIdLocal")
+  }, character(1))
+  selected_global_id <- if (GLOBAL_ID_LOCAL %in% global_ids) {
+    GLOBAL_ID_LOCAL
+  } else if (UV_FALLBACK_GLOBAL_ID_LOCAL %in% global_ids) {
+    UV_FALLBACK_GLOBAL_ID_LOCAL
+  } else {
+    ""
+  }
+
+  if (selected_global_id == "") {
+    return(empty_frame(UV_INDEX_COLUMNS))
+  }
+
+  selected <- api_data[global_ids == selected_global_id]
+  source <- if (selected_global_id == GLOBAL_ID_LOCAL) {
+    "IPMA open-data forecast/meteorology/uv/uv.json"
+  } else {
+    paste0(
+      "IPMA open-data forecast/meteorology/uv/uv.json (",
+      UV_FALLBACK_LOCATION,
+      " proxy for Matosinhos)"
+    )
+  }
+
+  rows <- lapply(selected, function(item) {
+    build_uv_row(
+      source_updated_at = FETCHED_AT,
+      target_date = field_text(item, "data"),
+      uv_value = field_text(item, "iUv"),
+      global_id_local = selected_global_id,
+      source = source
+    )
+  })
+
+  uv <- bind_rows(rows)
+  uv <- uv[uv$target_date != "", , drop = FALSE]
+  uv[] <- lapply(uv, as.character)
+  uv[, UV_INDEX_COLUMNS]
+}
+
+build_uv_index <- function(latest_forecasts) {
+  forecast_uv <- build_uv_index_from_forecasts(latest_forecasts)
+  if (has_any_uv_index_value(forecast_uv)) {
+    return(forecast_uv)
+  }
+
+  endpoint_uv <- build_uv_index_from_endpoint()
+  if (nrow(endpoint_uv) > 0) {
+    return(endpoint_uv)
+  }
+
+  if (nrow(forecast_uv) > 0) {
+    forecast_uv$source <- paste(
+      "IPMA public-data forecast aggregate without UV values;",
+      "dedicated IPMA UV endpoint empty at fetch time"
+    )
+  }
+
+  forecast_uv
 }
 
 write_uv_index <- function(new_data) {
@@ -3169,6 +3273,27 @@ highest_uv_row <- function(rows) {
     as.data.frame(stringsAsFactors = FALSE)
 }
 
+uv_source_description <- function(rows) {
+  if (nrow(rows) == 0 || !"source" %in% names(rows)) {
+    return("IPMA")
+  }
+
+  sources <- as.character(rows$source)
+  sources <- unique(sources[!is.na(sources) & sources != ""])
+  source_text <- paste(sources, collapse = "; ")
+  if (grepl("proxy for Matosinhos", source_text, fixed = TRUE)) {
+    return("IPMA, endpoint dedicado de previsão UV; Porto usado como proxy para Matosinhos")
+  }
+  if (grepl("dedicated IPMA UV endpoint empty", source_text, fixed = TRUE)) {
+    return("IPMA; previsão agregada sem campo iUv e endpoint dedicado UV vazio no momento da recolha")
+  }
+  if (grepl("forecast/meteorology/uv/uv.json", source_text, fixed = TRUE)) {
+    return("IPMA, endpoint dedicado de previsão UV")
+  }
+
+  "IPMA, previsão agregada por local"
+}
+
 build_uv_daily_section <- function(rows, report_date) {
   source_update <- latest_source_update(rows)
   if (source_update == "") {
@@ -3201,7 +3326,9 @@ build_uv_daily_section <- function(rows, report_date) {
     paste0("### Índice UV - previsões disponíveis em ", report_date),
     "",
     paste0(
-      "Fonte dos valores: IPMA. Atualização IPMA: ",
+      "Fonte dos valores: ",
+      uv_source_description(rows),
+      ". Atualização IPMA: ",
       source_update,
       " UTC. Período com valor previsto: ",
       date_scope,
