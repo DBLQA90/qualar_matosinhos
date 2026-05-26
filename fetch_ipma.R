@@ -4491,9 +4491,7 @@ update_daily_temperature_report <- function(alerts) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4524,9 +4522,7 @@ update_daily_heat_wave_report <- function(heat_waves) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4562,9 +4558,7 @@ update_daily_thermal_stress_report <- function(thermal_stress) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4596,9 +4590,7 @@ update_daily_sns_health_report <- function(indices) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4634,9 +4626,7 @@ update_daily_clima_extremo_report <- function(risk) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4672,9 +4662,7 @@ update_daily_uv_report <- function(uv_index) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }
@@ -4710,9 +4698,7 @@ update_daily_ipma_alerts_report <- function(alerts) {
     existing <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
   } else {
     existing <- c(
-      paste0("# Relatório diário - ", LOCATION, ", ", DISTRICT),
-      "",
-      paste0("Ficheiro diário: ", report_date),
+      summary_report_title(report_date),
       ""
     )
   }

@@ -201,7 +201,8 @@ summary_signal <- function(
   future = "Sem dados",
   driver = "sem dados",
   today_order = -1,
-  future_order = -1
+  future_order = -1,
+  horizon = ""
 ) {
   list(
     domain = domain,
@@ -209,8 +210,103 @@ summary_signal <- function(
     future = future,
     driver = driver,
     today_order = today_order,
-    future_order = future_order
+    future_order = future_order,
+    horizon = horizon
   )
+}
+
+summary_short_date <- function(value) {
+  date_value <- as.Date(value)
+  if (is.na(date_value)) {
+    return("")
+  }
+
+  format(date_value, "%d/%m")
+}
+
+summary_horizon_from_rows <- function(domain, rows, date_col, order_col, report_date) {
+  if (nrow(rows) == 0 || !date_col %in% names(rows) || !order_col %in% names(rows)) {
+    return("")
+  }
+
+  dates <- as.Date(rows[[date_col]])
+  orders <- suppressWarnings(as.numeric(rows[[order_col]]))
+  report_date_value <- as.Date(report_date)
+  keep <- !is.na(dates) & !is.na(orders) & dates >= report_date_value
+  if (!any(keep)) {
+    return("")
+  }
+
+  dates <- dates[keep]
+  orders <- orders[keep]
+  active <- orders > 0
+  if (!any(active)) {
+    return("")
+  }
+
+  if (!any(dates > report_date_value)) {
+    return(paste0(domain, ": hoje - sem dados para os próximos dias"))
+  }
+
+  today_order <- if (any(dates == report_date_value)) {
+    max(orders[dates == report_date_value], na.rm = TRUE)
+  } else {
+    -1
+  }
+  max_order <- max(orders[active], na.rm = TRUE)
+  active_dates <- dates[active]
+
+  if (all(orders[active] == max_order)) {
+    return(paste0(domain, ": previsto até ", summary_short_date(max(active_dates))))
+  }
+
+  peak_date <- min(dates[orders == max_order], na.rm = TRUE)
+
+  if (max_order > today_order) {
+    improving_dates <- dates[dates > peak_date & orders < max_order]
+    if (length(improving_dates) > 0) {
+      return(paste0(
+        domain,
+        ": pico em ",
+        summary_short_date(peak_date),
+        ", tendência a melhorar a partir de ",
+        summary_short_date(min(improving_dates))
+      ))
+    }
+
+    return(paste0(domain, ": pico em ", summary_short_date(peak_date)))
+  }
+
+  if (today_order == max_order) {
+    improving_dates <- dates[dates > report_date_value & orders < today_order]
+    if (length(improving_dates) > 0) {
+      return(paste0(
+        domain,
+        ": pico hoje, tendência a melhorar a partir de ",
+        summary_short_date(min(improving_dates))
+      ))
+    }
+
+    return(paste0(domain, ": previsto até ", summary_short_date(max(active_dates))))
+  }
+
+  paste0(domain, ": previsto até ", summary_short_date(max(active_dates)))
+}
+
+summary_report_title <- function(report_date) {
+  paste0("# PNPRSS Matosinhos | ", report_date)
+}
+
+normalize_report_header <- function(content, report_date) {
+  content <- content[!grepl("^Ficheiro diário:", content)]
+
+  first_nonblank <- which(content != "")
+  if (length(first_nonblank) > 0 && grepl("^# ", content[[first_nonblank[1]]])) {
+    content <- content[-first_nonblank[1]]
+  }
+
+  content <- content[!(seq_along(content) == 1 & content == "")]
+  c(summary_report_title(report_date), "", content)
 }
 
 summary_compact_blank_lines <- function(content) {
@@ -363,7 +459,14 @@ summary_qualar_signal <- function(report_date) {
     future_status,
     driver,
     summary_to_num(today$overall_alert_level),
-    summary_to_num(future_highest$overall_alert_level)
+    summary_to_num(future_highest$overall_alert_level),
+    summary_horizon_from_rows(
+      "Qualidade do ar",
+      rows,
+      "forecast_date",
+      "overall_alert_level",
+      report_date
+    )
   )
 }
 
@@ -405,7 +508,14 @@ summary_temperature_signal <- function(report_date) {
       "sem dados"
     },
     summary_to_num(today$overall_temperature_alert_level),
-    summary_to_num(future_highest$overall_temperature_alert_level)
+    summary_to_num(future_highest$overall_temperature_alert_level),
+    summary_horizon_from_rows(
+      "Temperatura DSP",
+      rows,
+      "target_date",
+      "overall_temperature_alert_level",
+      report_date
+    )
   )
 }
 
@@ -441,7 +551,14 @@ summary_heat_wave_signal <- function(report_date) {
       "sem dados"
     },
     summary_to_num(today$heat_wave_level),
-    summary_to_num(future_highest$heat_wave_level)
+    summary_to_num(future_highest$heat_wave_level),
+    summary_horizon_from_rows(
+      "Onda de calor",
+      rows,
+      "target_date",
+      "heat_wave_level",
+      report_date
+    )
   )
 }
 
@@ -478,7 +595,14 @@ summary_thermal_signal <- function(report_date) {
       "sem dados"
     },
     summary_to_num(today_highest$thermal_level_order),
-    summary_to_num(future_highest$thermal_level_order)
+    summary_to_num(future_highest$thermal_level_order),
+    summary_horizon_from_rows(
+      "Stress térmico UTCI",
+      rows,
+      "target_date",
+      "thermal_level_order",
+      report_date
+    )
   )
 }
 
@@ -523,7 +647,14 @@ summary_uv_signal <- function(report_date) {
       "sem dados"
     },
     summary_to_num(today$uv_level_order),
-    summary_to_num(future_highest$uv_level_order)
+    summary_to_num(future_highest$uv_level_order),
+    summary_horizon_from_rows(
+      "Índice UV",
+      rows,
+      "target_date",
+      "uv_level_order",
+      report_date
+    )
   )
 }
 
@@ -596,7 +727,14 @@ summary_sns_signal <- function(report_date) {
     future_text,
     if (length(driver_parts) > 0) paste(driver_parts, collapse = "; ") else "sem dados",
     summary_to_num(today_highest$risk_level_order),
-    summary_to_num(future_highest$risk_level_order)
+    summary_to_num(future_highest$risk_level_order),
+    summary_horizon_from_rows(
+      "ÍCARO/FRIESA",
+      applicable,
+      "target_date",
+      "risk_level_order",
+      report_date
+    )
   )
 }
 
@@ -667,7 +805,14 @@ summary_clima_extremo_signal <- function(report_date) {
     },
     driver_text(today_highest),
     summary_to_num(today_highest$risk_level_order),
-    summary_to_num(future_highest$risk_level_order)
+    summary_to_num(future_highest$risk_level_order),
+    summary_horizon_from_rows(
+      "Clima Extremo",
+      rows,
+      "target_date",
+      "risk_level_order",
+      report_date
+    )
   )
 }
 
@@ -739,7 +884,14 @@ summary_ipma_alert_signal <- function(report_date) {
     type_text(future),
     driver,
     summary_to_num(today_highest$alert_level_order),
-    summary_to_num(future_highest$alert_level_order)
+    summary_to_num(future_highest$alert_level_order),
+    summary_horizon_from_rows(
+      "Avisos IPMA",
+      future,
+      "target_date",
+      "alert_level_order",
+      report_date
+    )
   )
 }
 
@@ -996,13 +1148,16 @@ summary_operational_action <- function(level) {
 }
 
 summary_local_risk_snapshot_lines <- function(assessment, global_level) {
-  c(
-    paste0("**Estado hoje:** ", global_level, "."),
-    paste0("**Nível local sugerido (hoje e horizonte de previsão):** ", assessment$label, "."),
-    paste0("**Conduta operacional:** ", summary_operational_action(assessment$level)),
-    paste0("**Justificação:** ", assessment$reason, "."),
-    paste0("**Limitação:** ", assessment$limitation)
+  level_name <- switch(
+    as.character(assessment$level),
+    "0" = "🟢 Verde",
+    "1" = "🟡 Amarelo",
+    "2" = "🟠 Laranja",
+    "3" = "🔴 Vermelho",
+    "Nível indeterminado"
   )
+
+  paste0("**Estado geral:** ", level_name, " - ", assessment$label, ".")
 }
 
 summary_active_factor_lines <- function(signals) {
@@ -1031,6 +1186,71 @@ summary_active_factor_lines <- function(signals) {
       "."
     )
   }, character(1))
+}
+
+summary_signal_has_future_data <- function(signal) {
+  future <- summary_as_text(signal$future)
+  future != "" &&
+    !future %in% c("Sem dados", "Sem previsão", "A recalcular com novas observações") &&
+    !grepl("^Sem dados", future)
+}
+
+summary_extract_future_date <- function(text) {
+  match <- regexpr("\\d{4}-\\d{2}-\\d{2}", summary_as_text(text))
+  if (match < 0) {
+    return("")
+  }
+
+  date_value <- as.Date(regmatches(summary_as_text(text), match))
+  if (is.na(date_value)) {
+    return("")
+  }
+
+  format(date_value, "%d/%m")
+}
+
+summary_horizon_part <- function(signal) {
+  explicit_horizon <- summary_as_text(signal$horizon)
+  if (explicit_horizon != "") {
+    return(explicit_horizon)
+  }
+
+  today_order <- summary_order_value(signal$today_order)
+  future_order <- summary_order_value(signal$future_order)
+
+  if (!summary_signal_has_future_data(signal)) {
+    return(paste0(signal$domain, ": hoje - sem dados para os próximos dias"))
+  }
+
+  future_date <- summary_extract_future_date(signal$future)
+  future_date_text <- if (future_date == "") "no horizonte disponível" else future_date
+
+  if (today_order > 0 && future_order < today_order) {
+    return(paste0(
+      signal$domain,
+      ": pico hoje, tendência a melhorar a partir de ",
+      future_date_text
+    ))
+  }
+
+  if (future_order > today_order) {
+    return(paste0(signal$domain, ": pico em ", future_date_text))
+  }
+
+  paste0(signal$domain, ": previsto até ", future_date_text)
+}
+
+summary_recommendation_horizon <- function(signals) {
+  active <- Filter(function(signal) {
+    summary_order_value(signal$today_order) > 0 ||
+      summary_order_value(signal$future_order) > 0
+  }, signals)
+
+  if (length(active) == 0) {
+    return("sem sinais ativos no horizonte disponível.")
+  }
+
+  paste(vapply(active, summary_horizon_part, character(1)), collapse = "; ")
 }
 
 summary_has_domain <- function(signals, domain, use_future = FALSE) {
@@ -1192,28 +1412,45 @@ summary_today_recommendations <- function(signals) {
     establishments <- paste(establishments, collapse = " ")
   }
 
+  horizon <- summary_recommendation_horizon(signals)
+
   c(
+    paste0("Horizonte temporal: ", horizon),
+    "",
     paste0("**Comunicação geral:** ", general),
     "",
     paste0("**Grupos vulneráveis:** ", vulnerable),
     "",
-    paste0("**Estabelecimentos:** ", establishments)
+    paste0("**Estabelecimentos/equipamentos:** ", establishments)
   )
 }
 
 summary_future_lines <- function(signals) {
-  future_active <- Filter(function(signal) {
-    !is.na(signal$future_order) && signal$future_order > 0
+  future_changed <- Filter(function(signal) {
+    if (!summary_signal_has_future_data(signal)) {
+      return(FALSE)
+    }
+
+    today_order <- summary_order_value(signal$today_order)
+    future_order <- summary_order_value(signal$future_order)
+    if (future_order < 0) {
+      return(FALSE)
+    }
+    if (today_order < 0) {
+      return(future_order > 0)
+    }
+
+    future_order != today_order
   }, signals)
 
-  if (length(future_active) == 0) {
-    return("- Sem agravamento relevante identificado nos próximos dias disponíveis.")
+  if (length(future_changed) == 0) {
+    return("- Sem mudanças ou agravamentos previstos nos dados disponíveis.")
   }
 
-  future_order <- vapply(future_active, summary_signal_planning_order, numeric(1))
-  future_active <- future_active[order(-future_order)]
+  future_order <- vapply(future_changed, summary_signal_planning_order, numeric(1))
+  future_changed <- future_changed[order(-future_order)]
 
-  vapply(future_active, function(signal) {
+  vapply(future_changed, function(signal) {
     paste0(
       "- ",
       signal$domain,
@@ -1223,6 +1460,21 @@ summary_future_lines <- function(signals) {
       signal$driver,
       ")."
     )
+  }, character(1))
+}
+
+summary_no_signal_lines <- function(signals) {
+  inactive <- Filter(function(signal) {
+    summary_order_value(signal$today_order) <= 0 &&
+      summary_order_value(signal$future_order) <= 0
+  }, signals)
+
+  if (length(inactive) == 0) {
+    return("- Sem indicadores inativos.")
+  }
+
+  vapply(inactive, function(signal) {
+    paste0("- ", signal$domain, ": ", signal$today, ".")
   }, character(1))
 }
 
@@ -1248,33 +1500,33 @@ summary_table_lines <- function(signals) {
 
 build_operational_summary_section <- function(report_date) {
   signals <- summary_collect_signals(report_date)
-  global_level <- summary_global_level(signals)
   local_risk <- summary_local_risk_assessment(signals)
-  generated_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
   c(
     paste0("<!-- ", SUMMARY_MARKER, ":start -->"),
-    "## Síntese operacional",
+    "## Sinais ativos",
     "",
-    paste0("Data do boletim: ", report_date, ". Síntese gerada em ", generated_at, "."),
+    summary_local_risk_snapshot_lines(local_risk, summary_global_level(signals)),
     "",
-    summary_local_risk_snapshot_lines(local_risk, global_level),
-    "",
-    "## O que recomendar hoje",
-    "",
-    summary_today_recommendations(signals),
-    "",
-    "## Sinais que justificam",
+    "### Sinais que justificam",
     "",
     summary_active_factor_lines(signals),
+    "",
+    "### Quadro rápido de risco",
+    "",
+    summary_table_lines(signals),
+    "",
+    "## Recomendações",
+    "",
+    summary_today_recommendations(signals),
     "",
     "## Próximos dias a vigiar",
     "",
     summary_future_lines(signals),
     "",
-    "## Quadro rápido de risco",
+    "## Indicadores sem sinal",
     "",
-    summary_table_lines(signals),
+    summary_no_signal_lines(signals),
     paste0("<!-- ", SUMMARY_MARKER, ":end -->")
   )
 }
@@ -1292,11 +1544,11 @@ replace_operational_summary <- function(content, report_date) {
     return(summary_compact_blank_lines(c(before, section, after)))
   }
 
-  file_line <- grep("^Ficheiro diário:", content)
-  if (length(file_line) > 0) {
-    before <- content[seq_len(file_line[1])]
-    after <- if (file_line[1] < length(content)) {
-      content[(file_line[1] + 1):length(content)]
+  title_line <- grep("^# ", content)
+  if (length(title_line) > 0) {
+    before <- content[seq_len(title_line[1])]
+    after <- if (title_line[1] < length(content)) {
+      content[(title_line[1] + 1):length(content)]
     } else {
       character()
     }
@@ -1306,8 +1558,47 @@ replace_operational_summary <- function(content, report_date) {
   summary_compact_blank_lines(c(section, "", content))
 }
 
+ensure_detail_heading <- function(content) {
+  content[content == "## Detalhe por indicador"] <- "## Indicadores detalhados"
+  if (any(content == "## Indicadores detalhados")) {
+    return(content)
+  }
+
+  end_marker <- paste0("<!-- ", SUMMARY_MARKER, ":end -->")
+  end <- which(content == end_marker)
+  if (length(end) == 0 || end[1] >= length(content)) {
+    return(content)
+  }
+
+  source_header <- grep(SOURCES_HEADER_PATTERN, content)
+  search_end <- if (length(source_header) > 0) source_header[1] - 1 else length(content)
+  if (search_end <= end[1]) {
+    return(content)
+  }
+
+  detail_candidates <- which(
+    seq_along(content) > end[1] &
+      seq_along(content) <= search_end &
+      (
+        grepl("^### ", content) |
+          grepl("^<!-- (temperatura-dsp|onda-calor|utci|sns-health|clima-extremo|uv|ipma-alerts):start -->$", content)
+      )
+  )
+
+  if (length(detail_candidates) == 0) {
+    return(content)
+  }
+
+  insert_at <- detail_candidates[1]
+  before <- if (insert_at > 1) content[seq_len(insert_at - 1)] else character()
+  after <- content[insert_at:length(content)]
+  summary_compact_blank_lines(c(before, "## Indicadores detalhados", "", after))
+}
+
 finalize_daily_report <- function(content, report_date) {
+  content <- normalize_report_header(content, report_date)
   content <- replace_operational_summary(content, report_date)
+  content <- ensure_detail_heading(content)
   replace_report_sources(content)
 }
 

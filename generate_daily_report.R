@@ -17,9 +17,7 @@ content <- if (file.exists(report_path)) {
   readLines(report_path, warn = FALSE, encoding = "UTF-8")
 } else {
   c(
-    "# Boletim diário - Matosinhos, Porto, Portugal",
-    "",
-    paste0("Ficheiro diário: ", report_date)
+    summary_report_title(report_date)
   )
 }
 

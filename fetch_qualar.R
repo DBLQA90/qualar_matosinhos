@@ -456,11 +456,9 @@ build_daily_report <- function(predictions, report_date) {
   }
 
   content <- c(
-    paste0("# Boletim diário - ", LOCATION),
+    summary_report_title(report_date),
     "",
-    paste0("Ficheiro diário: ", report_date),
-    "",
-    "## Detalhe por indicador",
+    "## Indicadores detalhados",
     "",
     "Escala operacional usada: Verde (0), Amarelo (1), Laranja (2), Vermelho (3), conforme a tabela de estratificação por poluente indicada para O₃, NO₂, PM10 e PM2.5.",
     ""
