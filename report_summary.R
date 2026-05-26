@@ -202,7 +202,8 @@ summary_signal <- function(
   driver = "sem dados",
   today_order = -1,
   future_order = -1,
-  horizon = ""
+  horizon = "",
+  future_driver = ""
 ) {
   list(
     domain = domain,
@@ -211,7 +212,8 @@ summary_signal <- function(
     driver = driver,
     today_order = today_order,
     future_order = future_order,
-    horizon = horizon
+    horizon = horizon,
+    future_driver = if (summary_as_text(future_driver) == "") driver else future_driver
   )
 }
 
@@ -442,16 +444,25 @@ summary_qualar_signal <- function(report_date) {
     "Sem previsão"
   }
 
-  driver <- if (nrow(today) > 0) {
-    driver_value <- summary_clean(today$alert_drivers, "Nenhum")
-    if (driver_value == "Nenhum") {
-      "sem poluentes acima de Verde"
-    } else {
-      driver_value
+  qualar_driver_text <- function(row) {
+    if (nrow(row) == 0) {
+      return("sem dados")
     }
-  } else {
-    "sem dados"
+    driver_value <- summary_clean(row$alert_drivers, "Nenhum")
+    if (driver_value == "Nenhum") {
+      return("sem poluentes acima de Verde")
+    } else {
+      return(driver_value)
+    }
   }
+
+  future_driver_row <- if (nrow(tomorrow) > 0) {
+    tomorrow
+  } else {
+    future_highest
+  }
+  driver <- qualar_driver_text(today)
+  future_driver <- qualar_driver_text(future_driver_row)
 
   summary_signal(
     "Qualidade do ar",
@@ -466,7 +477,8 @@ summary_qualar_signal <- function(report_date) {
       "forecast_date",
       "overall_alert_level",
       report_date
-    )
+    ),
+    future_driver = future_driver
   )
 }
 
@@ -812,7 +824,8 @@ summary_clima_extremo_signal <- function(report_date) {
       "target_date",
       "risk_level_order",
       report_date
-    )
+    ),
+    future_driver = driver_text(future_highest)
   )
 }
 
@@ -1450,13 +1463,17 @@ summary_future_lines <- function(signals) {
   future_changed <- future_changed[order(-future_order)]
 
   vapply(future_changed, function(signal) {
+    future_driver <- summary_as_text(signal$future_driver)
+    if (future_driver == "") {
+      future_driver <- summary_as_text(signal$driver)
+    }
     paste0(
       "- ",
       signal$domain,
       ": ",
       signal$future,
       " (",
-      signal$driver,
+      future_driver,
       ")."
     )
   }, character(1))
