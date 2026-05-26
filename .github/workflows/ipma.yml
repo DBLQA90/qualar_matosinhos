@@ -80,6 +80,10 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         run: Rscript fetch_ipma.R full
 
+      - name: Avaliar erro das previsões IPMA
+        if: steps.gate.outputs.should_run == 'true'
+        run: Rscript evaluate_ipma_forecast_error.R
+
       - name: Atualizar dados QualAr
         if: steps.gate.outputs.should_run == 'true'
         run: Rscript fetch_qualar.R
