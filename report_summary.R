@@ -1162,25 +1162,24 @@ summary_local_risk_snapshot_lines <- function(assessment, global_level) {
 
 summary_active_factor_lines <- function(signals) {
   active <- Filter(function(signal) {
-    (!is.na(signal$today_order) && signal$today_order > 0) ||
-      (!is.na(signal$future_order) && signal$future_order > 0)
+    !is.na(signal$today_order) && signal$today_order > 0
   }, signals)
 
   if (length(active) == 0) {
     return("- Sem sinais relevantes acima da vigilância habitual.")
   }
 
-  active_order <- vapply(active, summary_signal_planning_order, numeric(1))
+  active_order <- vapply(active, function(signal) {
+    summary_order_value(signal$today_order)
+  }, numeric(1))
   active <- active[order(-active_order)]
 
   vapply(active, function(signal) {
     paste0(
       "- ",
       signal$domain,
-      ": hoje ",
+      ": ",
       signal$today,
-      "; próximos dias ",
-      signal$future,
       "; motivo: ",
       signal$driver,
       "."
@@ -1512,6 +1511,10 @@ build_operational_summary_section <- function(report_date) {
     "",
     summary_active_factor_lines(signals),
     "",
+    "## Próximos dias a vigiar",
+    "",
+    summary_future_lines(signals),
+    "",
     "### Quadro rápido de risco",
     "",
     summary_table_lines(signals),
@@ -1519,10 +1522,6 @@ build_operational_summary_section <- function(report_date) {
     "## Recomendações",
     "",
     summary_today_recommendations(signals),
-    "",
-    "## Próximos dias a vigiar",
-    "",
-    summary_future_lines(signals),
     "",
     "## Indicadores sem sinal",
     "",
