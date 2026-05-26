@@ -1,10 +1,14 @@
-name: Recolher IPMA Matosinhos
+name: Atualizar dados externos Matosinhos
 
 on:
   schedule:
-    - cron: '15 10 * * *'
-    - cron: '15 14 * * *'
-    - cron: '15 20 * * *'
+    # GitHub cron is UTC. These four slots cover 09:30 and 15:30
+    # Europe/Lisbon in both winter time and summer time; the first step gates
+    # execution to the intended local times.
+    - cron: '30 8 * * *'
+    - cron: '30 9 * * *'
+    - cron: '30 14 * * *'
+    - cron: '30 15 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -15,44 +19,80 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  fetch:
+  update-external-data:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Validar horário local
+        id: gate
+        shell: bash
+        run: |
+          run_local_time="$(TZ=Europe/Lisbon date +'%H:%M')"
+          schedule_utc=""
+          case "${{ github.event.schedule }}" in
+            "30 8 * * *") schedule_utc="08:30" ;;
+            "30 9 * * *") schedule_utc="09:30" ;;
+            "30 14 * * *") schedule_utc="14:30" ;;
+            "30 15 * * *") schedule_utc="15:30" ;;
+          esac
+
+          if [ -n "${schedule_utc}" ]; then
+            scheduled_local_time="$(TZ=Europe/Lisbon date -d "$(date -u +%Y-%m-%d) ${schedule_utc} UTC" +'%H:%M')"
+          else
+            scheduled_local_time="${run_local_time}"
+          fi
+
+          echo "local_time=${scheduled_local_time}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] ||
+             [ "${scheduled_local_time}" = "09:30" ] ||
+             [ "${scheduled_local_time}" = "15:30" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "A atualizar dados externos para ${scheduled_local_time} Europe/Lisbon."
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Ignorado: cron ${{ github.event.schedule }} corresponde a ${scheduled_local_time} Europe/Lisbon. Arranque real: ${run_local_time}."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.should_run == 'true'
         with:
           fetch-depth: 0
 
       - uses: r-lib/actions/setup-r@v2
+        if: steps.gate.outputs.should_run == 'true'
         with:
           r-version: 'release'
 
       - name: Atualizar branch local
+        if: steps.gate.outputs.should_run == 'true'
         run: git pull --ff-only origin main
 
       - name: Instalar packages R
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           install.packages(c("httr", "jsonlite", "dplyr", "readr"))
         shell: Rscript {0}
 
-      - name: Correr script IPMA
-        run: |
-          if [ "${{ github.event.schedule }}" = "15 14 * * *" ]; then
-            Rscript fetch_ipma.R light
-          else
-            Rscript fetch_ipma.R full
-          fi
+      - name: Atualizar dados IPMA/SNS/Clima Extremo
+        if: steps.gate.outputs.should_run == 'true'
+        run: Rscript fetch_ipma.R full
 
-      - name: Commit dos dados IPMA se mudaram
+      - name: Atualizar dados QualAr
+        if: steps.gate.outputs.should_run == 'true'
+        run: Rscript fetch_qualar.R
+
+      - name: Commit dos dados se mudaram
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ daily/
+          git add data/ daily/ qualar_matosinhos.csv
           if git diff --staged --quiet; then
-            echo "Sem alterações nos dados IPMA ou no relatório diário, nada a fazer."
+            echo "Sem alterações nos dados externos ou no relatório diário, nada a fazer."
           else
-            git commit -m "Update IPMA Matosinhos $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git commit -m "Update external data Matosinhos $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             git push origin HEAD:main
           fi

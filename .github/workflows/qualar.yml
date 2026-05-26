@@ -1,9 +1,14 @@
-name: Recolher QualAr Matosinhos
+name: Gerar relatório diário Matosinhos
 
 on:
   schedule:
-    - cron: '17 7 * * *'
-    - cron: '17 8 * * *'
+    # GitHub cron is UTC. These four slots cover 10:00 and 16:00
+    # Europe/Lisbon in both winter time and summer time; the first step gates
+    # execution to the intended local times.
+    - cron: '0 9 * * *'
+    - cron: '0 10 * * *'
+    - cron: '0 15 * * *'
+    - cron: '0 16 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -14,39 +19,76 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  fetch:
+  generate-report:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Validar horário local
+        id: gate
+        shell: bash
+        run: |
+          run_local_time="$(TZ=Europe/Lisbon date +'%H:%M')"
+          schedule_utc=""
+          case "${{ github.event.schedule }}" in
+            "0 9 * * *") schedule_utc="09:00" ;;
+            "0 10 * * *") schedule_utc="10:00" ;;
+            "0 15 * * *") schedule_utc="15:00" ;;
+            "0 16 * * *") schedule_utc="16:00" ;;
+          esac
+
+          if [ -n "${schedule_utc}" ]; then
+            scheduled_local_time="$(TZ=Europe/Lisbon date -d "$(date -u +%Y-%m-%d) ${schedule_utc} UTC" +'%H:%M')"
+          else
+            scheduled_local_time="${run_local_time}"
+          fi
+
+          echo "local_time=${scheduled_local_time}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] ||
+             [ "${scheduled_local_time}" = "10:00" ] ||
+             [ "${scheduled_local_time}" = "16:00" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "A gerar relatório diário para ${scheduled_local_time} Europe/Lisbon."
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Ignorado: cron ${{ github.event.schedule }} corresponde a ${scheduled_local_time} Europe/Lisbon. Arranque real: ${run_local_time}."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.should_run == 'true'
         with:
           fetch-depth: 0
 
       - uses: r-lib/actions/setup-r@v2
+        if: steps.gate.outputs.should_run == 'true'
         with:
           r-version: 'release'
 
       - name: Atualizar branch local
+        if: steps.gate.outputs.should_run == 'true'
         run: git pull --ff-only origin main
 
       - name: Instalar packages R
+        if: steps.gate.outputs.should_run == 'true'
         run: |
-          install.packages(c("httr", "jsonlite", "dplyr", "readr"))
+          install.packages(c("readr"))
         shell: Rscript {0}
 
-      - name: Correr script
-        run: Rscript fetch_qualar.R
+      - name: Gerar relatório diário
+        if: steps.gate.outputs.should_run == 'true'
+        run: Rscript generate_daily_report.R
 
-      - name: Commit do CSV se mudou
+      - name: Commit do relatório se mudou
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add qualar_matosinhos.csv daily/
+          git add daily/
           if git diff --staged --quiet; then
-            echo "Sem alterações no CSV ou nos ficheiros diários, nada a fazer."
+            echo "Sem alterações no relatório diário, nada a fazer."
           else
-            git commit -m "Update QualAr $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git commit -m "Generate daily report Matosinhos $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             git push origin HEAD:main
           fi
