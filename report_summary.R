@@ -227,6 +227,116 @@ summary_short_date <- function(value) {
   format(date_value, "%d/%m")
 }
 
+summary_latest_date_text <- function(dates) {
+  dates <- dates[!is.na(dates)]
+  if (length(dates) == 0) {
+    return("sem data válida")
+  }
+
+  as.character(max(dates))
+}
+
+summary_row_has_value <- function(rows, value_col = NULL) {
+  if (nrow(rows) == 0) {
+    return(FALSE)
+  }
+  if (is.null(value_col) || !value_col %in% names(rows)) {
+    return(TRUE)
+  }
+
+  values <- as.character(rows[[value_col]])
+  values <- values[!is.na(values)]
+  any(nzchar(values))
+}
+
+summary_source_coverage_line <- function(
+  label,
+  path,
+  date_col,
+  report_date,
+  require_today = TRUE,
+  require_future = FALSE,
+  value_col = NULL,
+  rows_filter = NULL
+) {
+  rows <- summary_read_csv(path)
+  if (nrow(rows) == 0) {
+    return(paste0("- ", label, ": sem dados disponíveis em `", path, "`."))
+  }
+  if (!date_col %in% names(rows)) {
+    return(paste0("- ", label, ": ficheiro sem coluna de data esperada (`", date_col, "`)."))
+  }
+
+  if (!is.null(rows_filter)) {
+    rows <- rows_filter(rows)
+  }
+  if (nrow(rows) == 0) {
+    return(paste0("- ", label, ": sem registos aplicáveis para este boletim."))
+  }
+
+  dates <- as.Date(rows[[date_col]])
+  report_date_value <- as.Date(report_date)
+  today_rows <- rows[!is.na(dates) & dates == report_date_value, , drop = FALSE]
+  future_rows <- rows[!is.na(dates) & dates > report_date_value, , drop = FALSE]
+
+  if (require_today && !summary_row_has_value(today_rows, value_col)) {
+    return(paste0(
+      "- ",
+      label,
+      ": sem valor para a data do boletim; última data disponível: ",
+      summary_latest_date_text(dates),
+      "."
+    ))
+  }
+
+  if (require_future && nrow(future_rows) == 0) {
+    return(paste0(
+      "- ",
+      label,
+      ": sem previsão futura para além de ",
+      as.character(report_date_value),
+      "; não inferir duração."
+    ))
+  }
+
+  ""
+}
+
+summary_sns_health_coverage_line <- function(report_date) {
+  rows <- summary_read_csv("data/sns_matosinhos_temperature_health_indices_latest.csv")
+  if (nrow(rows) == 0) {
+    return("- SNS/INSA: sem dados ÍCARO/FRIESA disponíveis.")
+  }
+
+  month_value <- as.integer(format(as.Date(report_date), "%m"))
+  expected_index <- if (month_value %in% 5:9) {
+    "ÍCARO"
+  } else if (month_value %in% c(11, 12, 1, 2, 3)) {
+    "FRIESA"
+  } else {
+    ""
+  }
+
+  if (expected_index == "") {
+    return("")
+  }
+
+  summary_source_coverage_line(
+    paste0("SNS/INSA ", expected_index),
+    "data/sns_matosinhos_temperature_health_indices_latest.csv",
+    "target_date",
+    report_date,
+    require_today = TRUE,
+    require_future = FALSE,
+    rows_filter = function(data) {
+      if (!"index_name" %in% names(data)) {
+        return(data[0, , drop = FALSE])
+      }
+      data[data$index_name == expected_index, , drop = FALSE]
+    }
+  )
+}
+
 summary_horizon_from_rows <- function(
   domain,
   rows,
@@ -427,7 +537,7 @@ replace_report_sources <- function(content) {
   summary_compact_blank_lines(c(content, "", section))
 }
 
-summary_source_status_section <- function(report_date) {
+summary_source_error_lines <- function(report_date) {
   rows <- summary_read_csv("data/pipeline_source_status_latest.csv")
   if (nrow(rows) == 0 ||
       !"local_date" %in% names(rows) ||
@@ -445,7 +555,7 @@ summary_source_status_section <- function(report_date) {
     return(character())
   }
 
-  lines <- vapply(seq_len(nrow(rows)), function(i) {
+  vapply(seq_len(nrow(rows)), function(i) {
     row <- rows[i, , drop = FALSE]
     message <- summary_clean(row$message, "sem detalhe")
     message <- substr(message, 1, 280)
@@ -459,10 +569,111 @@ summary_source_status_section <- function(report_date) {
       "."
     )
   }, character(1))
+}
+
+summary_source_freshness_lines <- function(report_date) {
+  lines <- c(
+    summary_source_coverage_line(
+      "QualAr",
+      "qualar_matosinhos.csv",
+      "forecast_date",
+      report_date,
+      require_today = TRUE,
+      require_future = FALSE
+    ),
+    summary_source_coverage_line(
+      "IPMA meteorologia",
+      "data/ipma_matosinhos_forecast_latest.csv",
+      "forecast_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE
+    ),
+    summary_source_coverage_line(
+      "Temperatura DSP",
+      "data/ipma_matosinhos_temperature_alert_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = FALSE
+    ),
+    summary_source_coverage_line(
+      "Onda de calor",
+      "data/ipma_matosinhos_heat_waves_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE
+    ),
+    summary_source_coverage_line(
+      "Stress térmico UTCI",
+      "data/ipma_matosinhos_thermal_stress_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE,
+      value_col = "utci_c"
+    ),
+    summary_source_coverage_line(
+      "Índice UV",
+      "data/ipma_matosinhos_uv_index_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE,
+      value_col = "uv_index"
+    ),
+    summary_sns_health_coverage_line(report_date),
+    summary_source_coverage_line(
+      "Clima Extremo",
+      "data/clima_extremo_matosinhos_risk_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE
+    ),
+    summary_source_coverage_line(
+      "Avisos IPMA",
+      "data/ipma_matosinhos_alerts_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = FALSE
+    )
+  )
+
+  lines[nzchar(lines)]
+}
+
+summary_source_status_section <- function(report_date) {
+  error_lines <- summary_source_error_lines(report_date)
+  freshness_lines <- summary_source_freshness_lines(report_date)
+
+  if (length(error_lines) == 0 && length(freshness_lines) == 0) {
+    return(character())
+  }
+
+  lines <- character()
+  if (length(error_lines) > 0) {
+    lines <- c(lines, "**Erros de extração:**", "", error_lines)
+  }
+  if (length(freshness_lines) > 0) {
+    if (length(lines) > 0) {
+      lines <- c(lines, "")
+    }
+    lines <- c(
+      lines,
+      "**Cobertura/frescura dos dados:**",
+      "",
+      freshness_lines
+    )
+  }
 
   c(
     paste0("<!-- ", SOURCE_STATUS_MARKER, ":start -->"),
     "## Estado das fontes",
+    "",
+    "O boletim foi gerado com os dados disponíveis. As notas abaixo indicam fontes que falharam, ficaram incompletas ou não têm cobertura suficiente para a data/horizonte do boletim.",
     "",
     lines,
     paste0("<!-- ", SOURCE_STATUS_MARKER, ":end -->")
@@ -503,10 +714,6 @@ summary_qualar_signal <- function(report_date) {
   }
 
   today <- summary_date_rows(rows, "forecast_date", report_date)
-  if (nrow(today) == 0) {
-    today <- summary_first_future_row(rows, "forecast_date", report_date)
-  }
-
   tomorrow <- summary_date_rows(
     rows,
     "forecast_date",
@@ -856,10 +1063,6 @@ summary_clima_extremo_signal <- function(report_date) {
   }
 
   today <- summary_date_rows(rows, "target_date", report_date)
-  if (nrow(today) == 0) {
-    today <- summary_first_future_row(rows, "target_date", report_date)
-  }
-
   future <- summary_after_date_rows(rows, "target_date", report_date)
   future_highest <- summary_highest_row(future, "risk_level_order", "target_date")
   today_highest <- summary_highest_row(today, "risk_level_order", "target_date")

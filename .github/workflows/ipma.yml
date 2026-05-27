@@ -42,20 +42,16 @@ jobs:
 
           cycle=""
           report_time=""
-          email_time=""
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             cycle="manual"
             report_time="$local_time"
-            email_time="$local_time"
           elif [ "$local_minutes" -ge 560 ] && [ "$local_minutes" -le 719 ]; then
             cycle="morning"
             report_time="10:00"
-            email_time="10:10"
           elif [ "$local_minutes" -ge 920 ] && [ "$local_minutes" -le 1079 ]; then
             cycle="afternoon"
             report_time="16:00"
-            email_time="16:10"
           fi
 
           if [ -z "$cycle" ]; then
@@ -79,7 +75,6 @@ jobs:
           echo "cycle_id=${cycle_id}" >> "$GITHUB_OUTPUT"
           echo "local_date=${local_date}" >> "$GITHUB_OUTPUT"
           echo "report_time=${report_time}" >> "$GITHUB_OUTPUT"
-          echo "email_time=${email_time}" >> "$GITHUB_OUTPUT"
           echo "A executar ciclo ${cycle_id}; arranque ${local_time} Europe/Lisbon."
 
       - uses: r-lib/actions/setup-r@v2
