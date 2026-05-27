@@ -1,14 +1,6 @@
 name: Gerar relatório diário Matosinhos
 
 on:
-  schedule:
-    # GitHub cron is UTC. These four slots cover 10:00 and 16:00
-    # Europe/Lisbon in both winter time and summer time; the first step gates
-    # execution to the intended local times.
-    - cron: '0 9 * * *'
-    - cron: '0 10 * * *'
-    - cron: '0 15 * * *'
-    - cron: '0 16 * * *'
   workflow_dispatch:
 
 concurrency:

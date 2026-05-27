@@ -1,14 +1,12 @@
-name: Atualizar dados externos Matosinhos
+name: Pipeline diário Matosinhos
 
 on:
   schedule:
-    # GitHub cron is UTC. These four slots cover 09:30 and 15:30
-    # Europe/Lisbon in both winter time and summer time; the first step gates
-    # execution to the intended local times.
-    - cron: '30 8 * * *'
-    - cron: '30 9 * * *'
-    - cron: '30 14 * * *'
-    - cron: '30 15 * * *'
+    # GitHub cron is UTC and can be delayed or occasionally missed. These
+    # windows provide retries around the Lisbon morning and afternoon cycles;
+    # the gate below runs each cycle only once per day.
+    - cron: '*/15 8-11 * * *'
+    - cron: '*/15 14-17 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -19,56 +17,75 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  update-external-data:
+  daily-pipeline:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Validar horário local
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Atualizar branch local
+        run: git pull --ff-only origin main
+
+      - name: Validar ciclo local
         id: gate
         shell: bash
         run: |
-          run_local_time="$(TZ=Europe/Lisbon date +'%H:%M')"
-          schedule_utc=""
-          case "${{ github.event.schedule }}" in
-            "30 8 * * *") schedule_utc="08:30" ;;
-            "30 9 * * *") schedule_utc="09:30" ;;
-            "30 14 * * *") schedule_utc="14:30" ;;
-            "30 15 * * *") schedule_utc="15:30" ;;
-          esac
+          local_date="$(TZ=Europe/Lisbon date +'%Y-%m-%d')"
+          local_time="$(TZ=Europe/Lisbon date +'%H:%M')"
+          local_hour="$(TZ=Europe/Lisbon date +'%H')"
+          local_minute="$(TZ=Europe/Lisbon date +'%M')"
+          local_minutes=$((10#$local_hour * 60 + 10#$local_minute))
 
-          if [ -n "${schedule_utc}" ]; then
-            scheduled_local_time="$(TZ=Europe/Lisbon date -d "$(date -u +%Y-%m-%d) ${schedule_utc} UTC" +'%H:%M')"
-          else
-            scheduled_local_time="${run_local_time}"
+          cycle=""
+          report_time=""
+          email_time=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            cycle="manual"
+            report_time="$local_time"
+            email_time="$local_time"
+          elif [ "$local_minutes" -ge 560 ] && [ "$local_minutes" -le 719 ]; then
+            cycle="morning"
+            report_time="10:00"
+            email_time="10:10"
+          elif [ "$local_minutes" -ge 920 ] && [ "$local_minutes" -le 1079 ]; then
+            cycle="afternoon"
+            report_time="16:00"
+            email_time="16:10"
           fi
 
-          echo "local_time=${scheduled_local_time}" >> "$GITHUB_OUTPUT"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] ||
-             [ "${scheduled_local_time}" = "09:30" ] ||
-             [ "${scheduled_local_time}" = "15:30" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "A atualizar dados externos para ${scheduled_local_time} Europe/Lisbon."
-          else
+          if [ -z "$cycle" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Ignorado: cron ${{ github.event.schedule }} corresponde a ${scheduled_local_time} Europe/Lisbon. Arranque real: ${run_local_time}."
+            echo "Fora das janelas operacionais: ${local_date} ${local_time} Europe/Lisbon."
+            exit 0
           fi
 
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.should_run == 'true'
-        with:
-          fetch-depth: 0
+          marker_path="data/workflow_run_markers.csv"
+          cycle_id="${local_date}-${cycle}"
+          if [ "$cycle" != "manual" ] &&
+             [ -f "$marker_path" ] &&
+             grep -q "^${cycle_id}," "$marker_path"; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Ciclo ${cycle_id} já executado."
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "cycle=${cycle}" >> "$GITHUB_OUTPUT"
+          echo "cycle_id=${cycle_id}" >> "$GITHUB_OUTPUT"
+          echo "local_date=${local_date}" >> "$GITHUB_OUTPUT"
+          echo "report_time=${report_time}" >> "$GITHUB_OUTPUT"
+          echo "email_time=${email_time}" >> "$GITHUB_OUTPUT"
+          echo "A executar ciclo ${cycle_id}; arranque ${local_time} Europe/Lisbon."
 
       - uses: r-lib/actions/setup-r@v2
         if: steps.gate.outputs.should_run == 'true'
         with:
           r-version: 'release'
-
-      - name: Atualizar branch local
-        if: steps.gate.outputs.should_run == 'true'
-        run: git pull --ff-only origin main
 
       - name: Instalar packages R
         if: steps.gate.outputs.should_run == 'true'
@@ -88,15 +105,76 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         run: Rscript fetch_qualar.R
 
-      - name: Commit dos dados se mudaram
+      - name: Aguardar hora do relatório
+        if: steps.gate.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          target_epoch="$(TZ=Europe/Lisbon date -d "${{ steps.gate.outputs.local_date }} ${{ steps.gate.outputs.report_time }}" +%s)"
+          now_epoch="$(TZ=Europe/Lisbon date +%s)"
+          wait_seconds=$((target_epoch - now_epoch))
+          if [ "$wait_seconds" -gt 0 ]; then
+            echo "A aguardar ${wait_seconds}s até ${{ steps.gate.outputs.report_time }} Europe/Lisbon."
+            sleep "$wait_seconds"
+          else
+            echo "Hora do relatório já passou; a gerar agora."
+          fi
+
+      - name: Gerar relatório diário
+        if: steps.gate.outputs.should_run == 'true'
+        run: Rscript generate_daily_report.R
+
+      - name: Enviar resumo por email
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          SMTP_URL: ${{ secrets.SMTP_URL }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          GITHUB_REPOSITORY_URL: https://github.com/DBLQA90/qualar_matosinhos
+        shell: bash
+        run: |
+          target_epoch="$(TZ=Europe/Lisbon date -d "${{ steps.gate.outputs.local_date }} ${{ steps.gate.outputs.email_time }}" +%s)"
+          now_epoch="$(TZ=Europe/Lisbon date +%s)"
+          wait_seconds=$((target_epoch - now_epoch))
+          if [ "$wait_seconds" -gt 0 ]; then
+            echo "A aguardar ${wait_seconds}s até ${{ steps.gate.outputs.email_time }} Europe/Lisbon."
+            sleep "$wait_seconds"
+          else
+            echo "Hora do email já passou; a avaliar envio agora."
+          fi
+
+          if [ -z "$SMTP_URL" ] &&
+             { [ -z "$SMTP_SERVER" ] || [ -z "$SMTP_USERNAME" ] || [ -z "$SMTP_PASSWORD" ]; }; then
+            echo "SMTP não configurado; email ignorado sem falhar o pipeline."
+            exit 0
+          fi
+
+          Rscript send_daily_report_email.R
+
+      - name: Marcar ciclo concluído
+        if: steps.gate.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          marker_path="data/workflow_run_markers.csv"
+          mkdir -p data
+          if [ ! -f "$marker_path" ]; then
+            echo "cycle_id,completed_at_utc" > "$marker_path"
+          fi
+          if ! grep -q "^${{ steps.gate.outputs.cycle_id }}," "$marker_path"; then
+            echo "${{ steps.gate.outputs.cycle_id }},$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$marker_path"
+          fi
+
+      - name: Commit das alterações se mudaram
         if: steps.gate.outputs.should_run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/ daily/ qualar_matosinhos.csv
           if git diff --staged --quiet; then
-            echo "Sem alterações nos dados externos ou no relatório diário, nada a fazer."
+            echo "Sem alterações nos dados, relatório ou marcadores, nada a fazer."
           else
-            git commit -m "Update external data Matosinhos $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git commit -m "Run daily Matosinhos pipeline $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             git push origin HEAD:main
           fi
