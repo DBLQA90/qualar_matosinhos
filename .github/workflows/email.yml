@@ -1,4 +1,4 @@
-name: Enviar resumo diário Matosinhos
+name: Enviar resumo diário Matosinhos (desativado)
 
 on:
   workflow_dispatch:
@@ -18,59 +18,7 @@ jobs:
       contents: read
 
     steps:
-      - name: Validar horário local
-        id: gate
-        shell: bash
+      - name: Email desativado
         run: |
-          run_local_time="$(TZ=Europe/Lisbon date +'%H:%M')"
-          schedule_utc=""
-          case "${{ github.event.schedule }}" in
-            "10 9 * * *") schedule_utc="09:10" ;;
-            "10 10 * * *") schedule_utc="10:10" ;;
-            "10 15 * * *") schedule_utc="15:10" ;;
-            "10 16 * * *") schedule_utc="16:10" ;;
-          esac
-
-          if [ -n "${schedule_utc}" ]; then
-            scheduled_local_time="$(TZ=Europe/Lisbon date -d "$(date -u +%Y-%m-%d) ${schedule_utc} UTC" +'%H:%M')"
-          else
-            scheduled_local_time="${run_local_time}"
-          fi
-
-          echo "local_time=${scheduled_local_time}" >> "$GITHUB_OUTPUT"
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] ||
-             [ "${scheduled_local_time}" = "10:10" ] ||
-             [ "${scheduled_local_time}" = "16:10" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "A enviar resumo diário para ${scheduled_local_time} Europe/Lisbon."
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Ignorado: cron ${{ github.event.schedule }} corresponde a ${scheduled_local_time} Europe/Lisbon. Arranque real: ${run_local_time}."
-          fi
-
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.should_run == 'true'
-        with:
-          fetch-depth: 0
-
-      - uses: r-lib/actions/setup-r@v2
-        if: steps.gate.outputs.should_run == 'true'
-        with:
-          r-version: 'release'
-
-      - name: Atualizar branch local
-        if: steps.gate.outputs.should_run == 'true'
-        run: git pull --ff-only origin main
-
-      - name: Enviar resumo por email
-        if: steps.gate.outputs.should_run == 'true'
-        env:
-          SMTP_URL: ${{ secrets.SMTP_URL }}
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          GITHUB_REPOSITORY_URL: https://github.com/DBLQA90/qualar_matosinhos
-        run: Rscript send_daily_report_email.R
+          echo "Envio automático/manual de email está desativado por agora."
+          echo "Código mantido em send_daily_report_email.R para reativação futura, após commit do relatório."

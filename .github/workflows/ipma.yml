@@ -93,17 +93,9 @@ jobs:
           install.packages(c("httr", "jsonlite", "dplyr", "readr"))
         shell: Rscript {0}
 
-      - name: Atualizar dados IPMA/SNS/Clima Extremo
+      - name: Atualizar dados externos com redundância
         if: steps.gate.outputs.should_run == 'true'
-        run: Rscript fetch_ipma.R full
-
-      - name: Avaliar erro das previsões IPMA
-        if: steps.gate.outputs.should_run == 'true'
-        run: Rscript evaluate_ipma_forecast_error.R
-
-      - name: Atualizar dados QualAr
-        if: steps.gate.outputs.should_run == 'true'
-        run: Rscript fetch_qualar.R
+        run: Rscript run_daily_pipeline.R "${{ steps.gate.outputs.cycle_id }}" data
 
       - name: Aguardar hora do relatório
         if: steps.gate.outputs.should_run == 'true'
@@ -121,37 +113,7 @@ jobs:
 
       - name: Gerar relatório diário
         if: steps.gate.outputs.should_run == 'true'
-        run: Rscript generate_daily_report.R
-
-      - name: Enviar resumo por email
-        if: steps.gate.outputs.should_run == 'true'
-        env:
-          SMTP_URL: ${{ secrets.SMTP_URL }}
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          GITHUB_REPOSITORY_URL: https://github.com/DBLQA90/qualar_matosinhos
-        shell: bash
-        run: |
-          target_epoch="$(TZ=Europe/Lisbon date -d "${{ steps.gate.outputs.local_date }} ${{ steps.gate.outputs.email_time }}" +%s)"
-          now_epoch="$(TZ=Europe/Lisbon date +%s)"
-          wait_seconds=$((target_epoch - now_epoch))
-          if [ "$wait_seconds" -gt 0 ]; then
-            echo "A aguardar ${wait_seconds}s até ${{ steps.gate.outputs.email_time }} Europe/Lisbon."
-            sleep "$wait_seconds"
-          else
-            echo "Hora do email já passou; a avaliar envio agora."
-          fi
-
-          if [ -z "$SMTP_URL" ] &&
-             { [ -z "$SMTP_SERVER" ] || [ -z "$SMTP_USERNAME" ] || [ -z "$SMTP_PASSWORD" ]; }; then
-            echo "SMTP não configurado; email ignorado sem falhar o pipeline."
-            exit 0
-          fi
-
-          Rscript send_daily_report_email.R
+        run: Rscript run_daily_pipeline.R "${{ steps.gate.outputs.cycle_id }}" report
 
       - name: Marcar ciclo concluído
         if: steps.gate.outputs.should_run == 'true'

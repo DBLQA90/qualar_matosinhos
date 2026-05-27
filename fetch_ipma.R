@@ -4762,6 +4762,67 @@ run_sns_health_pipeline <- function() {
   )
 }
 
+run_weather_pipeline <- function() {
+  climate_temperature_data <- build_temperature_history()
+  station <- run_station_fallback_pipeline()
+
+  temperature_data <- apply_station_temperature_fallback(
+    climate_temperature_data,
+    station$daily_history
+  )
+  temperature_history <- write_temperature_history(temperature_data)
+
+  forecast_data <- build_forecasts()
+  forecast_result <- write_forecasts(forecast_data)
+
+  temperature_alerts_data <- build_temperature_alerts(
+    temperature_history,
+    forecast_result$latest
+  )
+  temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
+  daily_temperature_report_path <- update_daily_temperature_report(
+    temperature_alerts_result$latest
+  )
+
+  heat_wave_data <- build_heat_waves(
+    temperature_history,
+    forecast_result$latest
+  )
+  heat_wave_result <- write_heat_waves(heat_wave_data)
+  daily_heat_wave_report_path <- update_daily_heat_wave_report(heat_wave_result$latest)
+
+  thermal_stress_data <- build_thermal_stress(forecast_result$latest)
+  thermal_stress_result <- write_thermal_stress(thermal_stress_data)
+  daily_thermal_stress_report_path <- update_daily_thermal_stress_report(
+    thermal_stress_result$latest
+  )
+
+  uv_index_data <- build_uv_index(forecast_result$latest)
+  uv_index_result <- write_uv_index(uv_index_data)
+  daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
+
+  list(
+    climate_temperature_data = climate_temperature_data,
+    station = station,
+    temperature_data = temperature_data,
+    temperature_history = temperature_history,
+    forecast_data = forecast_data,
+    forecast_result = forecast_result,
+    temperature_alerts_data = temperature_alerts_data,
+    temperature_alerts_result = temperature_alerts_result,
+    daily_temperature_report_path = daily_temperature_report_path,
+    heat_wave_data = heat_wave_data,
+    heat_wave_result = heat_wave_result,
+    daily_heat_wave_report_path = daily_heat_wave_report_path,
+    thermal_stress_data = thermal_stress_data,
+    thermal_stress_result = thermal_stress_result,
+    daily_thermal_stress_report_path = daily_thermal_stress_report_path,
+    uv_index_data = uv_index_data,
+    uv_index_result = uv_index_result,
+    daily_uv_report_path = daily_uv_report_path
+  )
+}
+
 run_clima_extremo_pipeline <- function() {
   tryCatch(
     {
@@ -4830,44 +4891,7 @@ run_clima_extremo_pipeline <- function() {
 }
 
 run_full_pipeline <- function() {
-  climate_temperature_data <- build_temperature_history()
-  station <- run_station_fallback_pipeline()
-
-  temperature_data <- apply_station_temperature_fallback(
-    climate_temperature_data,
-    station$daily_history
-  )
-  temperature_history <- write_temperature_history(temperature_data)
-
-  forecast_data <- build_forecasts()
-  forecast_result <- write_forecasts(forecast_data)
-
-  temperature_alerts_data <- build_temperature_alerts(
-    temperature_history,
-    forecast_result$latest
-  )
-  temperature_alerts_result <- write_temperature_alerts(temperature_alerts_data)
-  daily_temperature_report_path <- update_daily_temperature_report(
-    temperature_alerts_result$latest
-  )
-
-  heat_wave_data <- build_heat_waves(
-    temperature_history,
-    forecast_result$latest
-  )
-  heat_wave_result <- write_heat_waves(heat_wave_data)
-  daily_heat_wave_report_path <- update_daily_heat_wave_report(heat_wave_result$latest)
-
-  thermal_stress_data <- build_thermal_stress(forecast_result$latest)
-  thermal_stress_result <- write_thermal_stress(thermal_stress_data)
-  daily_thermal_stress_report_path <- update_daily_thermal_stress_report(
-    thermal_stress_result$latest
-  )
-
-  uv_index_data <- build_uv_index(forecast_result$latest)
-  uv_index_result <- write_uv_index(uv_index_data)
-  daily_uv_report_path <- update_daily_uv_report(uv_index_result$latest)
-
+  weather <- run_weather_pipeline()
   sns_health <- run_sns_health_pipeline()
   clima_extremo <- run_clima_extremo_pipeline()
   ipma_alerts <- run_ipma_alerts_pipeline()
@@ -4886,27 +4910,27 @@ run_full_pipeline <- function() {
       "%d Clima Extremo row(s) collected; Clima Extremo archive has %d row(s); Clima Extremo report: %s.",
       "%d IPMA alert row(s) collected; IPMA alert archive has %d row(s); IPMA alert report: %s."
     ),
-    nrow(climate_temperature_data),
-    nrow(station$observations_data),
-    nrow(station$observations_history),
-    nrow(station$daily_history),
-    nrow(temperature_data),
-    nrow(temperature_history),
-    nrow(forecast_data),
-    nrow(forecast_result$combined),
-    nrow(forecast_result$latest),
-    nrow(temperature_alerts_data),
-    nrow(temperature_alerts_result$combined),
-    daily_temperature_report_path,
-    nrow(heat_wave_data),
-    nrow(heat_wave_result$combined),
-    daily_heat_wave_report_path,
-    nrow(thermal_stress_data),
-    nrow(thermal_stress_result$combined),
-    daily_thermal_stress_report_path,
-    nrow(uv_index_data),
-    nrow(uv_index_result$combined),
-    daily_uv_report_path,
+    nrow(weather$climate_temperature_data),
+    nrow(weather$station$observations_data),
+    nrow(weather$station$observations_history),
+    nrow(weather$station$daily_history),
+    nrow(weather$temperature_data),
+    nrow(weather$temperature_history),
+    nrow(weather$forecast_data),
+    nrow(weather$forecast_result$combined),
+    nrow(weather$forecast_result$latest),
+    nrow(weather$temperature_alerts_data),
+    nrow(weather$temperature_alerts_result$combined),
+    weather$daily_temperature_report_path,
+    nrow(weather$heat_wave_data),
+    nrow(weather$heat_wave_result$combined),
+    weather$daily_heat_wave_report_path,
+    nrow(weather$thermal_stress_data),
+    nrow(weather$thermal_stress_result$combined),
+    weather$daily_thermal_stress_report_path,
+    nrow(weather$uv_index_data),
+    nrow(weather$uv_index_result$combined),
+    weather$daily_uv_report_path,
     nrow(sns_health$data),
     nrow(sns_health$result$combined),
     sns_health$report_path,
@@ -4916,6 +4940,48 @@ run_full_pipeline <- function() {
     nrow(ipma_alerts$data),
     nrow(ipma_alerts$result$combined),
     ipma_alerts$report_path
+  ))
+}
+
+run_weather_only_pipeline <- function() {
+  weather <- run_weather_pipeline()
+
+  message(sprintf(
+    paste(
+      "OK weather - %d climate temperature row(s) fetched; %d station observation row(s) fetched.",
+      "Station observation archive has %d row(s); station daily fallback has %d row(s).",
+      "%d forecast row(s) fetched; forecast archive has %d row(s); latest snapshot has %d row(s).",
+      "%d temperature alert row(s) calculated; temperature report: %s.",
+      "%d heat wave row(s) calculated; heat wave report: %s.",
+      "%d UTCI row(s) calculated; UTCI report: %s.",
+      "%d UV row(s) calculated; UV report: %s."
+    ),
+    nrow(weather$climate_temperature_data),
+    nrow(weather$station$observations_data),
+    nrow(weather$station$observations_history),
+    nrow(weather$station$daily_history),
+    nrow(weather$forecast_data),
+    nrow(weather$forecast_result$combined),
+    nrow(weather$forecast_result$latest),
+    nrow(weather$temperature_alerts_data),
+    weather$daily_temperature_report_path,
+    nrow(weather$heat_wave_data),
+    weather$daily_heat_wave_report_path,
+    nrow(weather$thermal_stress_data),
+    weather$daily_thermal_stress_report_path,
+    nrow(weather$uv_index_data),
+    weather$daily_uv_report_path
+  ))
+}
+
+run_sns_health_only_pipeline <- function() {
+  sns_health <- run_sns_health_pipeline()
+
+  message(sprintf(
+    "OK sns-health - %d SNS/INSA health index row(s) collected; archive has %d row(s); report: %s.",
+    nrow(sns_health$data),
+    nrow(sns_health$result$combined),
+    sns_health$report_path
   ))
 }
 
@@ -4957,6 +5023,14 @@ run_clima_extremo_only_pipeline <- function() {
     nrow(clima_extremo$result$combined),
     clima_extremo$report_path
   ))
+
+  if (isTRUE(clima_extremo$used_cache) && nzchar(clima_extremo$error)) {
+    stop(
+      "Clima Extremo indisponível; cache usada quando possível: ",
+      clima_extremo$error,
+      call. = FALSE
+    )
+  }
 }
 
 run_alerts_pipeline <- function() {
@@ -4975,12 +5049,20 @@ dir.create(DATA_DIR, showWarnings = FALSE, recursive = TRUE)
 mode <- ipma_run_mode()
 if (mode == "full") {
   run_full_pipeline()
+} else if (mode %in% c("weather", "meteorology", "meteorologia")) {
+  run_weather_only_pipeline()
 } else if (mode == "light") {
   run_light_pipeline()
+} else if (mode %in% c("sns-health", "sns_health", "sns")) {
+  run_sns_health_only_pipeline()
 } else if (mode %in% c("clima-extremo", "clima_extremo")) {
   run_clima_extremo_only_pipeline()
 } else if (mode == "alerts") {
   run_alerts_pipeline()
 } else {
-  stop("Unknown IPMA run mode: ", mode, ". Use full, light, clima-extremo or alerts.")
+  stop(
+    "Unknown IPMA run mode: ",
+    mode,
+    ". Use full, weather, light, sns-health, clima-extremo or alerts."
+  )
 }

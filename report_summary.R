@@ -1,4 +1,5 @@
 SUMMARY_MARKER <- "sintese"
+SOURCE_STATUS_MARKER <- "source-status"
 SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
 
 REPORT_SOURCE_SECTIONS <- list(
@@ -226,13 +227,25 @@ summary_short_date <- function(value) {
   format(date_value, "%d/%m")
 }
 
-summary_horizon_from_rows <- function(domain, rows, date_col, order_col, report_date) {
+summary_horizon_from_rows <- function(
+  domain,
+  rows,
+  date_col,
+  order_col,
+  report_date,
+  value_col = NULL
+) {
   if (nrow(rows) == 0 || !date_col %in% names(rows) || !order_col %in% names(rows)) {
     return("")
   }
 
   dates <- as.Date(rows[[date_col]])
   orders <- suppressWarnings(as.numeric(rows[[order_col]]))
+  values <- if (!is.null(value_col) && value_col %in% names(rows)) {
+    suppressWarnings(as.numeric(rows[[value_col]]))
+  } else {
+    orders
+  }
   report_date_value <- as.Date(report_date)
   keep <- !is.na(dates) & !is.na(orders) & dates >= report_date_value
   if (!any(keep)) {
@@ -241,6 +254,8 @@ summary_horizon_from_rows <- function(domain, rows, date_col, order_col, report_
 
   dates <- dates[keep]
   orders <- orders[keep]
+  values <- values[keep]
+  values[is.na(values)] <- -Inf
   active <- orders > 0
   if (!any(active)) {
     return("")
@@ -256,16 +271,20 @@ summary_horizon_from_rows <- function(domain, rows, date_col, order_col, report_
     -1
   }
   max_order <- max(orders[active], na.rm = TRUE)
+  max_value <- max(values[active & orders == max_order], na.rm = TRUE)
   active_dates <- dates[active]
 
   if (all(orders[active] == max_order)) {
     return(paste0(domain, ": previsto até ", summary_short_date(max(active_dates))))
   }
 
-  peak_date <- min(dates[orders == max_order], na.rm = TRUE)
+  peak_date <- min(dates[orders == max_order & values == max_value], na.rm = TRUE)
 
   if (max_order > today_order) {
-    improving_dates <- dates[dates > peak_date & orders < max_order]
+    improving_dates <- dates[
+      dates > peak_date &
+        (orders < max_order | (orders == max_order & values < max_value))
+    ]
     if (length(improving_dates) > 0) {
       return(paste0(
         domain,
@@ -403,6 +422,75 @@ replace_report_sources <- function(content) {
       character()
     }
     return(summary_compact_blank_lines(c(before, section)))
+  }
+
+  summary_compact_blank_lines(c(content, "", section))
+}
+
+summary_source_status_section <- function(report_date) {
+  rows <- summary_read_csv("data/pipeline_source_status_latest.csv")
+  if (nrow(rows) == 0 ||
+      !"local_date" %in% names(rows) ||
+      !"status" %in% names(rows)) {
+    return(character())
+  }
+
+  rows <- rows[
+    rows$local_date == as.character(report_date) &
+      rows$status != "ok",
+    ,
+    drop = FALSE
+  ]
+  if (nrow(rows) == 0) {
+    return(character())
+  }
+
+  lines <- vapply(seq_len(nrow(rows)), function(i) {
+    row <- rows[i, , drop = FALSE]
+    message <- summary_clean(row$message, "sem detalhe")
+    message <- substr(message, 1, 280)
+    paste0(
+      "- ",
+      summary_clean(row$source, "Fonte"),
+      ": erro na fase ",
+      summary_clean(row$phase, "desconhecida"),
+      "; não foi possível atualizar automaticamente. Detalhe: ",
+      message,
+      "."
+    )
+  }, character(1))
+
+  c(
+    paste0("<!-- ", SOURCE_STATUS_MARKER, ":start -->"),
+    "## Estado das fontes",
+    "",
+    lines,
+    paste0("<!-- ", SOURCE_STATUS_MARKER, ":end -->")
+  )
+}
+
+replace_source_status_section <- function(content, report_date) {
+  start_marker <- paste0("<!-- ", SOURCE_STATUS_MARKER, ":start -->")
+  end_marker <- paste0("<!-- ", SOURCE_STATUS_MARKER, ":end -->")
+  start <- which(content == start_marker)
+  end <- which(content == end_marker)
+
+  if (length(start) > 0 && length(end) > 0 && end[1] >= start[1]) {
+    before <- if (start[1] > 1) content[seq_len(start[1] - 1)] else character()
+    after <- if (end[1] < length(content)) content[(end[1] + 1):length(content)] else character()
+    content <- c(before, after)
+  }
+
+  section <- summary_source_status_section(report_date)
+  if (length(section) == 0) {
+    return(summary_compact_blank_lines(content))
+  }
+
+  source_header <- grep(SOURCES_HEADER_PATTERN, content)
+  if (length(source_header) > 0) {
+    before <- if (source_header[1] > 1) content[seq_len(source_header[1] - 1)] else character()
+    after <- content[source_header[1]:length(content)]
+    return(summary_compact_blank_lines(c(before, section, "", after)))
   }
 
   summary_compact_blank_lines(c(content, "", section))
@@ -597,10 +685,10 @@ summary_thermal_signal <- function(report_date) {
     } else {
       "Sem dados"
     },
-    if (nrow(future_highest) > 0) {
+    if (nrow(today_highest) > 0) {
       paste0(
         "UTCI ",
-        summary_clean(future_highest$utci_c),
+        summary_clean(today_highest$utci_c),
         " ºC"
       )
     } else {
@@ -614,7 +702,12 @@ summary_thermal_signal <- function(report_date) {
       "target_date",
       "thermal_level_order",
       report_date
-    )
+    ),
+    future_driver = if (nrow(future_highest) > 0) {
+      paste0("UTCI ", summary_clean(future_highest$utci_c), " ºC")
+    } else {
+      "sem dados"
+    }
   )
 }
 
@@ -653,8 +746,8 @@ summary_uv_signal <- function(report_date) {
     } else {
       "Sem dados"
     },
-    if (nrow(future_highest) > 0) {
-      summary_clean(future_highest$protection_required)
+    if (nrow(today) > 0) {
+      summary_clean(today$protection_required)
     } else {
       "sem dados"
     },
@@ -665,8 +758,14 @@ summary_uv_signal <- function(report_date) {
       rows,
       "target_date",
       "uv_level_order",
-      report_date
-    )
+      report_date,
+      value_col = "uv_index"
+    ),
+    future_driver = if (nrow(future_highest) > 0) {
+      summary_clean(future_highest$protection_required)
+    } else {
+      "sem dados"
+    }
   )
 }
 
@@ -1615,6 +1714,7 @@ finalize_daily_report <- function(content, report_date) {
   content <- normalize_report_header(content, report_date)
   content <- replace_operational_summary(content, report_date)
   content <- ensure_detail_heading(content)
+  content <- replace_source_status_section(content, report_date)
   replace_report_sources(content)
 }
 
