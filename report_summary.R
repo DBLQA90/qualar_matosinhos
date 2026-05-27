@@ -1594,6 +1594,8 @@ summary_today_recommendations <- function(signals) {
 
   if (summary_has_domain(signals, "Avisos IPMA")) {
     alert_text <- summary_domain_text(signals, "Avisos IPMA")
+    alert_driver <- summary_domain_text(signals, "Avisos IPMA", "driver")
+    alert_context <- paste(alert_text, alert_driver)
     general <- c(
       general,
       paste0(
@@ -1602,14 +1604,34 @@ summary_today_recommendations <- function(signals) {
         "); acompanhar atualizações e adaptar atividades dependentes da meteorologia."
       )
     )
-    vulnerable <- c(
-      vulnerable,
-      "Evitar deslocações ou atividades exteriores de maior exposição durante precipitação forte/trovoada; confirmar contacto regular com pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social."
-    )
-    establishments <- c(
-      establishments,
-      "Rever planos de contingência, contactos e atividades exteriores; condicionar saídas em períodos de precipitação forte, trovoada, vento ou outro fenómeno ativo."
-    )
+    if (grepl("Tempo Quente", alert_context, ignore.case = TRUE)) {
+      vulnerable <- c(
+        vulnerable,
+        "Reforçar contacto com pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social; garantir hidratação, ambiente fresco e redução de esforço nas horas mais quentes."
+      )
+      establishments <- c(
+        establishments,
+        "Rever medidas de calor: água disponível, sombra ou espaços frescos, adaptação de horários e redução de esforço em atividades exteriores."
+      )
+    } else if (grepl("Precipitação|Trovoada|Vento", alert_context, ignore.case = TRUE)) {
+      vulnerable <- c(
+        vulnerable,
+        "Evitar deslocações ou atividades exteriores de maior exposição durante precipitação forte, trovoada ou vento; confirmar contacto regular com pessoas vulneráveis."
+      )
+      establishments <- c(
+        establishments,
+        "Rever planos de contingência, contactos e atividades exteriores; condicionar saídas nos períodos de precipitação forte, trovoada ou vento."
+      )
+    } else {
+      vulnerable <- c(
+        vulnerable,
+        "Confirmar contacto regular com pessoas idosas, crianças, pessoas com doença crónica, mobilidade reduzida ou isolamento social e adaptar exposição ao fenómeno ativo."
+      )
+      establishments <- c(
+        establishments,
+        "Rever planos de contingência, contactos e atividades exteriores; adaptar atividades ao fenómeno ativo e às orientações IPMA/Proteção Civil."
+      )
+    }
   }
 
   if (summary_has_domain(signals, "Qualidade do ar")) {
