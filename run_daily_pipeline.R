@@ -196,6 +196,13 @@ if (mode %in% c("all", "data")) {
     run_step(
       cycle_id,
       "data",
+      "Open-Meteo temperatura",
+      "Rscript",
+      "fetch_openmeteo.R"
+    ),
+    run_step(
+      cycle_id,
+      "data",
       "Temperatura percentil ERA5-Land",
       "Rscript",
       c("fetch_era5_temperature_climatology.R", "alerts")
