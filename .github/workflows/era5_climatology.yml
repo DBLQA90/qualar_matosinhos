@@ -1,0 +1,74 @@
+name: Climatologia ERA5-Land Matosinhos
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: matosinhos-data-push
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  era5-climatology:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Atualizar branch local
+        run: git pull --ff-only origin main
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Instalar cliente CDS
+        run: python -m pip install --upgrade cdsapi
+
+      - name: Configurar CDS API por ficheiro
+        shell: bash
+        env:
+          CDSAPI_RC: ${{ secrets.CDSAPI_RC }}
+        run: |
+          if [ -n "$CDSAPI_RC" ]; then
+            printf '%s\n' "$CDSAPI_RC" > ~/.cdsapirc
+            chmod 600 ~/.cdsapirc
+          else
+            echo "Sem secret CDSAPI_RC; serão usadas CDSAPI_URL/CDSAPI_KEY se existirem."
+          fi
+
+      - name: Extrair climatologia e percentis ERA5-Land
+        env:
+          CDSAPI_URL: ${{ secrets.CDSAPI_URL }}
+          CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
+        run: Rscript fetch_era5_temperature_climatology.R all
+
+      - name: Commit da climatologia se mudou
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for file in \
+            data/era5_matosinhos_daily_temperature_1991_2020.csv \
+            data/era5_matosinhos_temperature_percentiles.csv \
+            data/era5_matosinhos_temperature_percentile_alerts.csv \
+            data/era5_matosinhos_temperature_percentile_alert_latest.csv; do
+            if [ -f "$file" ]; then
+              git add "$file"
+            fi
+          done
+          if git diff --staged --quiet; then
+            echo "Sem alterações ERA5-Land, nada a fazer."
+          else
+            git commit -m "Update ERA5-Land Matosinhos climatology $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push origin HEAD:main
+          fi

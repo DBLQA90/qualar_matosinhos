@@ -196,6 +196,13 @@ if (mode %in% c("all", "data")) {
     run_step(
       cycle_id,
       "data",
+      "Temperatura percentil ERA5-Land",
+      "Rscript",
+      c("fetch_era5_temperature_climatology.R", "alerts")
+    ),
+    run_step(
+      cycle_id,
+      "data",
       "QualAr",
       "Rscript",
       "fetch_qualar.R"
