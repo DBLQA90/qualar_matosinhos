@@ -1,5 +1,5 @@
 source_updated_at,fetched_at,location,district,global_id_local,latitude,longitude,forecast_datetime_utc,forecast_date,period_hours,period_type,intervalo_hora,weather_type_id,precipitation_intensity_id,precipitation_probability_percent,tmed_c,tmin_c,tmax_c,humidity_percent,utci_c,wind_speed_kmh,wind_speed_class_id,wind_direction,uv_index,source
-2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T00:00:00,2026-06-05,24,daily,11h-15h,2,,2.0,,11.6,17.5,,,,2,N,8.3,IPMA public-data forecast aggregate by local
+2026-06-05T07:56:23,2026-06-05T17:00:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T00:00:00,2026-06-05,24,daily,11h-15h,2,,2.0,,11.6,17.5,,,,2,N,7.8,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T02:00:00,2026-06-05,1,hourly,,5,,,13.1,,,80.8,11.3,16.9,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T03:00:00,2026-06-05,1,hourly,,2,,0.0,13.0,,,79.8,11.4,15.5,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T04:00:00,2026-06-05,1,hourly,,2,,,12.6,,,79.8,11.2,13.3,,N,,IPMA public-data forecast aggregate by local
@@ -23,7 +23,7 @@ source_updated_at,fetched_at,location,district,global_id_local,latitude,longitud
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T22:00:00,2026-06-05,1,hourly,,4,,,15.5,,,71.1,14.3,12.6,,S,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-05T23:00:00,2026-06-05,1,hourly,,4,,,15.8,,,71.3,14.6,12.6,,S,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T00:00:00,2026-06-06,1,hourly,,4,,24.0,15.5,,,75.2,14.3,11.9,,S,,IPMA public-data forecast aggregate by local
-2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T00:00:00,2026-06-06,24,daily,12h-15h,3,,55.0,,14.4,19.4,,,,2,NW,6.4,IPMA public-data forecast aggregate by local
+2026-06-05T07:56:23,2026-06-05T17:00:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T00:00:00,2026-06-06,24,daily,12h-15h,3,,55.0,,14.4,19.4,,,,2,NW,6.1,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T01:00:00,2026-06-06,1,hourly,,10,1,,15.4,,,78.1,14.3,11.9,,S,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T02:00:00,2026-06-06,1,hourly,,10,1,,14.4,,,81.4,14.0,11.9,,S,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T03:00:00,2026-06-06,1,hourly,,10,1,71.0,15.2,,,82.5,14.2,10.4,,S,,IPMA public-data forecast aggregate by local
@@ -48,7 +48,7 @@ source_updated_at,fetched_at,location,district,global_id_local,latitude,longitud
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T22:00:00,2026-06-06,1,hourly,,5,,,15.4,,,85.5,13.9,15.8,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-06T23:00:00,2026-06-06,1,hourly,,1,,,15.2,,,88.0,14.0,12.2,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T00:00:00,2026-06-07,1,hourly,,1,,0.0,14.7,,,88.4,13.5,13.0,,N,,IPMA public-data forecast aggregate by local
-2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T00:00:00,2026-06-07,24,daily,12h-15h,2,,0.0,,12.6,19.5,,,,2,NW,8.3,IPMA public-data forecast aggregate by local
+2026-06-05T07:56:23,2026-06-05T17:00:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T00:00:00,2026-06-07,24,daily,12h-15h,2,,0.0,,12.6,19.5,,,,2,NW,8.7,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T01:00:00,2026-06-07,1,hourly,,1,,,14.3,,,89.6,13.1,13.0,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T02:00:00,2026-06-07,1,hourly,,1,,,13.9,,,90.9,12.7,11.5,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T03:00:00,2026-06-07,1,hourly,,1,,0.0,13.3,,,93.6,12.1,11.5,,N,,IPMA public-data forecast aggregate by local
@@ -73,7 +73,7 @@ source_updated_at,fetched_at,location,district,global_id_local,latitude,longitud
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T22:00:00,2026-06-07,1,hourly,,1,,,15.0,,,85.2,13.0,21.2,,NW,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-07T23:00:00,2026-06-07,1,hourly,,1,,,14.9,,,86.9,12.8,21.2,,NW,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T00:00:00,2026-06-08,1,hourly,,1,,0.0,14.8,,,87.9,12.8,20.5,,NW,,IPMA public-data forecast aggregate by local
-2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T00:00:00,2026-06-08,24,daily,11h-16h,1,,0.0,,13.4,19.0,,,,2,NW,9.2,IPMA public-data forecast aggregate by local
+2026-06-05T07:56:23,2026-06-05T17:00:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T00:00:00,2026-06-08,24,daily,11h-15h,1,,0.0,,13.4,19.0,,,,2,NW,9.2,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T03:00:00,2026-06-08,3,three_hourly,,1,,0.0,14.1,,,89.5,12.5,16.2,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T06:00:00,2026-06-08,3,three_hourly,,1,,0.0,14.1,,,86.6,12.7,14.0,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T09:00:00,2026-06-08,3,three_hourly,,1,,0.0,17.3,,,71.5,15.9,18.4,,NW,,IPMA public-data forecast aggregate by local
@@ -81,7 +81,7 @@ source_updated_at,fetched_at,location,district,global_id_local,latitude,longitud
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T15:00:00,2026-06-08,3,three_hourly,,1,,0.0,17.9,,,76.4,15.7,29.9,,NW,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T18:00:00,2026-06-08,3,three_hourly,,1,,0.0,17.7,,,80.5,15.9,25.2,,NW,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-08T21:00:00,2026-06-08,3,three_hourly,,1,,0.0,15.8,,,92.0,13.9,20.2,,NW,,IPMA public-data forecast aggregate by local
-2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-09T00:00:00,2026-06-09,24,daily,,2,,0.0,,13.1,20.3,,,,2,NW,,IPMA public-data forecast aggregate by local
+2026-06-05T07:56:23,2026-06-05T17:00:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-09T00:00:00,2026-06-09,24,daily,12h-15h,2,,0.0,,13.1,20.3,,,,2,NW,8.7,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-09T00:00:00,2026-06-09,3,three_hourly,,1,,0.0,15.2,,,95.0,13.7,15.5,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-09T03:00:00,2026-06-09,3,three_hourly,,1,,0.0,14.6,,,97.0,13.6,9.7,,N,,IPMA public-data forecast aggregate by local
 2026-06-05T07:56:23,2026-06-05T11:43:55Z,Matosinhos,Porto,1130800,41.1805,-8.6810,2026-06-09T06:00:00,2026-06-09,3,three_hourly,,4,,0.0,13.8,,,99.1,12.8,10.4,,N,,IPMA public-data forecast aggregate by local
