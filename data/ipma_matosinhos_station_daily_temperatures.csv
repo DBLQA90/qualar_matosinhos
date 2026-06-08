@@ -32,3 +32,4 @@ date,location,district,station_count,station_ids,station_names,tmin_c,tmax_c,min
 2026-06-04,Matosinhos,Porto,2,1200545;1210649,"Porto, Pedras Rubras; S. Gens",14,18.75,14,IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema,2026-06-05T11:43:55Z
 2026-06-05,Matosinhos,Porto,2,1200545;1210649,"Porto, Pedras Rubras; S. Gens",10.15,18.8,16,IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema,2026-06-06T10:30:44Z
 2026-06-06,Matosinhos,Porto,2,1200545;1210649,"Porto, Pedras Rubras; S. Gens",14.1,20.05,19,IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema,2026-06-07T10:41:22Z
+2026-06-07,Matosinhos,Porto,2,1200545;1210649,"Porto, Pedras Rubras; S. Gens",12.25,20.1,16,IPMA station fallback: daily mean of Pedras Rubras and S. Gens station extrema,2026-06-08T12:46:48Z
