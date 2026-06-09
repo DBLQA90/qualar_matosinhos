@@ -3,8 +3,8 @@ name: Pipeline diário Matosinhos
 on:
   schedule:
     # GitHub cron is UTC. Each target is listed for summer/winter Lisbon time,
-    # with short retry slots. The gate below converts the scheduled UTC slot to
-    # Europe/Lisbon and runs each phase only once per day.
+    # with one retry slot per phase. The gate below converts the scheduled UTC
+    # slot to Europe/Lisbon and runs each phase only once per day.
     - cron: '30 8 * * *'
     - cron: '45 8 * * *'
     - cron: '0 9 * * *'
@@ -13,7 +13,6 @@ on:
     - cron: '45 9 * * *'
     - cron: '0 10 * * *'
     - cron: '15 10 * * *'
-    - cron: '30 10 * * *'
     - cron: '30 14 * * *'
     - cron: '45 14 * * *'
     - cron: '0 15 * * *'
@@ -22,7 +21,6 @@ on:
     - cron: '45 15 * * *'
     - cron: '0 16 * * *'
     - cron: '15 16 * * *'
-    - cron: '30 16 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -74,7 +72,7 @@ jobs:
                 phase="data"
                 cycle="morning"
                 ;;
-              10:00|10:15|10:30)
+              10:00|10:15)
                 phase="report"
                 cycle="morning"
                 ;;
@@ -82,7 +80,7 @@ jobs:
                 phase="data"
                 cycle="afternoon"
                 ;;
-              16:00|16:15|16:30)
+              16:00|16:15)
                 phase="report"
                 cycle="afternoon"
                 ;;
