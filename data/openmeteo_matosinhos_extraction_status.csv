@@ -166,3 +166,8 @@
 "2026-06-11T17:52:35Z","historical-forecast","ok","2026-06-11T17:52:38Z","2026-06-11T17:52:39Z","Open-Meteo arquivo de previsões atualizado: 31 linha(s). "
 "2026-06-11T17:52:35Z","previous-runs","ok","2026-06-11T17:52:39Z","2026-06-11T17:52:45Z","Open-Meteo previous runs atualizados: 248 linha(s). "
 "2026-06-11T17:52:35Z","errors","ok","2026-06-11T17:52:45Z","2026-06-11T17:52:45Z","Open-Meteo erros calculados: 6998 linha(s). "
+"2026-06-12T12:00:52Z","history","ok","2026-06-12T12:00:52Z","2026-06-12T12:00:53Z","Open-Meteo histórico atualizado: 32 linha(s). "
+"2026-06-12T12:00:52Z","forecast","ok","2026-06-12T12:00:53Z","2026-06-12T12:01:12Z","Error in curl::curl_fetch_memory(url, handle = handle): Timeout was reached [api.open-meteo.com]: Resolving timed out after 10000 milliseconds Request failed [ERROR]. Retrying in 2.2 seconds... | Open-Meteo previsão futura atualizada: 16 linha(s). "
+"2026-06-12T12:00:52Z","historical-forecast","ok","2026-06-12T12:01:12Z","2026-06-12T12:01:13Z","Open-Meteo arquivo de previsões atualizado: 32 linha(s). "
+"2026-06-12T12:00:52Z","previous-runs","ok","2026-06-12T12:01:13Z","2026-06-12T12:01:14Z","Open-Meteo previous runs atualizados: 248 linha(s). "
+"2026-06-12T12:00:52Z","errors","ok","2026-06-12T12:01:14Z","2026-06-12T12:01:15Z","Open-Meteo erros calculados: 7006 linha(s). "
