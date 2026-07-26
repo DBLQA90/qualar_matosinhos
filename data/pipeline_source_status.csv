@@ -1080,3 +1080,4 @@
 "2026-07-26-afternoon","2026-07-26","data","Temperatura percentil ERA5-Land","ok","2026-07-26T15:41:33Z","2026-07-26T15:41:34Z","0","SKIP ERA5-Land percentile alerts - percentile file is not available."
 "2026-07-26-afternoon","2026-07-26","data","QualAr","ok","2026-07-26T15:41:34Z","2026-07-26T15:41:36Z","0","Attaching package: ‘dplyr’ | The following objects are masked from ‘package:stats’: | filter, lag | The following objects are masked from ‘package:base’: | intersect, setdiff, setequal, union | OK - 2 forecast row(s) fetched; CSV now has 84 row(s); daily report: daily/2026-07-26.md."
 "2026-07-26-afternoon","2026-07-26","report","Relatório diário","ok","2026-07-26T16:08:47Z","2026-07-26T16:08:48Z","0","OK report - generated daily/2026-07-26.md."
+"2026-07-26-manual-30216760641","2026-07-26","report","Relatório diário","ok","2026-07-26T19:24:58Z","2026-07-26T19:24:59Z","0","OK report - generated daily/2026-07-26.md."
