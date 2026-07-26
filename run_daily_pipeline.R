@@ -123,7 +123,7 @@ run_step <- function(cycle_id, phase, source, command, args = character()) {
   row
 }
 
-append_status <- function(new_rows, cycle_id) {
+append_status <- function(new_rows) {
   existing <- read_status(STATUS_ARCHIVE_PATH)
   combined <- rbind(existing, new_rows[, STATUS_COLUMNS, drop = FALSE])
   combined <- combined[!duplicated(
@@ -132,7 +132,11 @@ append_status <- function(new_rows, cycle_id) {
   ), , drop = FALSE]
   write_status(combined, STATUS_ARCHIVE_PATH)
 
-  latest <- combined[combined$cycle_id == cycle_id, , drop = FALSE]
+  latest <- combined[combined$local_date == local_today(), , drop = FALSE]
+  latest <- latest[!duplicated(
+    latest[, c("phase", "source"), drop = FALSE],
+    fromLast = TRUE
+  ), , drop = FALSE]
   write_status(latest, STATUS_LATEST_PATH)
 }
 
@@ -230,7 +234,7 @@ if (mode %in% c("all", "report")) {
   )
 }
 
-append_status(rows, cycle_id)
+append_status(rows)
 
 errors <- rows[rows$status != "ok", , drop = FALSE]
 report_errors <- errors[errors$phase == "report", , drop = FALSE]
