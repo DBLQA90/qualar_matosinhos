@@ -21,7 +21,13 @@ content <- if (file.exists(report_path)) {
   )
 }
 
-updated <- finalize_daily_report(content, report_date)
+model <- summary_build_operational_model(report_date)
+updated <- finalize_daily_report(content, report_date, model)
 writeLines(updated, report_path, useBytes = TRUE)
+quick_report_path <- write_quick_daily_report(report_date, model)
 
-message(sprintf("OK report - generated %s.", report_path))
+message(sprintf(
+  "OK report - generated %s and %s.",
+  report_path,
+  quick_report_path
+))

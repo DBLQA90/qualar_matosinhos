@@ -171,7 +171,7 @@ jobs:
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
         run: Rscript run_daily_pipeline.R "${{ steps.gate.outputs.cycle_id }}" report
 
-      - name: Testar lógica temporal do relatório
+      - name: Testar lógica temporal e operacional do relatório
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
         run: Rscript tests/test_report_summary.R
 
@@ -180,20 +180,23 @@ jobs:
         shell: bash
         run: |
           report_path="daily/${{ steps.gate.outputs.local_date }}.md"
+          quick_report_path="daily/resumo/${{ steps.gate.outputs.local_date }}.md"
           expected_title="# PNPRSS Matosinhos | ${{ steps.gate.outputs.local_date }}"
 
-          if [ ! -s "$report_path" ]; then
-            echo "::error::Relatório ausente ou vazio: ${report_path}"
-            exit 1
-          fi
+          for path in "$report_path" "$quick_report_path"; do
+            if [ ! -s "$path" ]; then
+              echo "::error::Relatório ausente ou vazio: ${path}"
+              exit 1
+            fi
 
-          actual_title="$(head -n 1 "$report_path")"
-          if [ "$actual_title" != "$expected_title" ]; then
-            echo "::error::Título inesperado em ${report_path}: ${actual_title}"
-            exit 1
-          fi
+            actual_title="$(head -n 1 "$path")"
+            if [ "$actual_title" != "$expected_title" ]; then
+              echo "::error::Título inesperado em ${path}: ${actual_title}"
+              exit 1
+            fi
+          done
 
-          echo "Relatório validado: ${report_path}"
+          echo "Relatórios validados: ${report_path}, ${quick_report_path}"
 
       - name: Marcar fase concluída
         if: steps.gate.outputs.should_run == 'true'

@@ -3,7 +3,12 @@ SOURCE_STATUS_MARKER <- "source-status"
 SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
 
 REPORT_SOURCE_SECTIONS <- list(
-  "Nível local sugerido" = c(
+  "Nível operacional" = c(
+    paste(
+      "- Metodologia local: o nível de hoje resulta dos sinais aplicáveis à data;",
+      "a previsão acrescenta preparação (Vermelho futuro -> Laranja hoje;",
+      "Amarelo/Laranja futuro -> Amarelo hoje), sem reclassificar o risco temporal como já ocorrido."
+    ),
     "- Plano Local de Preparação e Resposta Sazonal em Saúde da ULSM 2026-2027 (documento interno fornecido pela USP).",
     "- Plano Nacional de Preparação e Resposta Sazonal em Saúde 2026-2027: https://www.sns.min-saude.pt/wp-content/uploads/2026/04/Plano-Sazonal-26_27.pdf"
   ),
@@ -1389,8 +1394,10 @@ summary_local_risk_level_label <- function(level) {
   )
 }
 
-summary_local_risk_domain_level <- function(signal) {
-  order <- summary_signal_planning_order(signal)
+summary_local_risk_domain_level <- function(signal, order = NULL) {
+  if (is.null(order)) {
+    order <- summary_signal_planning_order(signal)
+  }
   if (is.na(order) || order <= 0) {
     return(list(level = 0, critical = FALSE))
   }
@@ -1440,9 +1447,19 @@ summary_local_risk_domain_level <- function(signal) {
   list(level = min(3, max(1, floor(order))), critical = FALSE)
 }
 
-summary_local_risk_candidates <- function(signals) {
+summary_local_risk_candidates <- function(
+  signals,
+  horizon = c("planning", "today", "future")
+) {
+  horizon <- match.arg(horizon)
   rows <- lapply(signals, function(signal) {
-    mapped <- summary_local_risk_domain_level(signal)
+    order <- switch(
+      horizon,
+      planning = summary_signal_planning_order(signal),
+      today = summary_order_value(signal$today_order),
+      future = summary_order_value(signal$future_order)
+    )
+    mapped <- summary_local_risk_domain_level(signal, order)
     if (mapped$level <= 0) {
       return(NULL)
     }
@@ -1455,6 +1472,7 @@ summary_local_risk_candidates <- function(signals) {
       today = signal$today,
       future = signal$future,
       driver = signal$driver,
+      raw_order = order,
       stringsAsFactors = FALSE
     )
   })
@@ -1469,6 +1487,7 @@ summary_local_risk_candidates <- function(signals) {
       today = character(),
       future = character(),
       driver = character(),
+      raw_order = numeric(),
       stringsAsFactors = FALSE
     ))
   }
@@ -1476,8 +1495,12 @@ summary_local_risk_candidates <- function(signals) {
   do.call(rbind, rows)
 }
 
-summary_local_risk_assessment <- function(signals) {
-  candidates <- summary_local_risk_candidates(signals)
+summary_local_risk_assessment <- function(
+  signals,
+  horizon = c("planning", "today", "future")
+) {
+  horizon <- match.arg(horizon)
+  candidates <- summary_local_risk_candidates(signals, horizon)
   if (nrow(candidates) == 0) {
     return(list(
       level = 0,
@@ -1526,6 +1549,55 @@ summary_local_risk_assessment <- function(signals) {
       "Não integra ainda indicadores assistenciais internos da ULSM",
       "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
     )
+  )
+}
+
+summary_preparation_level <- function(future_level) {
+  if (is.na(future_level) || future_level <= 0) {
+    return(0)
+  }
+  if (future_level >= 3) {
+    return(2)
+  }
+
+  1
+}
+
+summary_operational_phase <- function(today_level, future_level) {
+  if (today_level <= 0 && future_level <= 0) {
+    return("Vigilância de rotina")
+  }
+  if (today_level > 0 && future_level > today_level) {
+    return("Resposta atual e preparação para agravamento")
+  }
+  if (today_level > 0) {
+    return("Resposta proporcional aos sinais atuais")
+  }
+  if (future_level >= 3) {
+    return("Preparação reforçada")
+  }
+
+  "Vigilância e preparação antecipada"
+}
+
+summary_build_operational_model <- function(report_date, signals = NULL) {
+  if (is.null(signals)) {
+    signals <- summary_collect_signals(report_date)
+  }
+
+  today <- summary_local_risk_assessment(signals, "today")
+  future <- summary_local_risk_assessment(signals, "future")
+  preparation_level <- summary_preparation_level(future$level)
+  operational_level <- max(today$level, preparation_level, na.rm = TRUE)
+
+  list(
+    report_date = as.character(report_date),
+    signals = signals,
+    today = today,
+    future = future,
+    preparation_level = preparation_level,
+    operational_level = operational_level,
+    phase = summary_operational_phase(today$level, future$level)
   )
 }
 
@@ -1578,17 +1650,105 @@ summary_operational_action <- function(level) {
   "Ativar resposta de emergência, comunicação dirigida e acompanhamento ativo de pessoas e estruturas vulneráveis."
 }
 
-summary_local_risk_snapshot_lines <- function(assessment, global_level) {
-  level_name <- switch(
-    as.character(assessment$level),
-    "0" = "🟢 Verde",
-    "1" = "🟡 Amarelo",
-    "2" = "🟠 Laranja",
-    "3" = "🔴 Vermelho",
+summary_operational_decision <- function(model) {
+  level <- model$operational_level
+  today_level <- model$today$level
+  future_level <- model$future$level
+
+  if (level == 2 && today_level <= 0 && future_level >= 3) {
+    return(
+      "Preparar hoje a resposta reforçada para o risco previsto, sem declarar emergência antes de o critério se aplicar."
+    )
+  }
+  if (level == 2 && future_level > today_level) {
+    return(
+      "Aplicar medidas seletivas aos sinais atuais e preparar hoje o reforço dirigido para o agravamento previsto."
+    )
+  }
+
+  summary_operational_action(level)
+}
+
+summary_operational_badge <- function(level) {
+  switch(
+    as.character(level),
+    "0" = "🟢 Verde - Nível 0 - Preparação",
+    "1" = "🟡 Amarelo - Nível 1 - Vigilância reforçada",
+    "2" = "🟠 Laranja - Nível 2 - Resposta reforçada",
+    "3" = "🔴 Vermelho - Nível 3 - Emergência",
     "Nível indeterminado"
   )
+}
 
-  paste0("**Estado geral:** ", level_name, " - ", assessment$label, ".")
+summary_local_risk_snapshot_lines <- function(model) {
+  c(
+    paste0(
+      "**Nível operacional:** ",
+      summary_operational_badge(model$operational_level),
+      "."
+    ),
+    paste0("**Fase operacional:** ", model$phase, "."),
+    paste0(
+      "**Decisão:** ",
+      summary_operational_decision(model)
+    ),
+    "**Próxima reavaliação:** no boletim seguinte ou antes, se surgir aviso oficial ou agravamento relevante."
+  )
+}
+
+summary_signal_authority <- function(domain) {
+  switch(
+    domain,
+    "Avisos IPMA" = "aviso/indicador oficial IPMA",
+    "Índice UV" = "previsão oficial IPMA",
+    "ÍCARO/FRIESA" = "índice oficial SNS/INSA",
+    "Qualidade do ar" = "previsão ambiental QualAr",
+    "Temperatura DSP" = "regra técnica local",
+    "Onda de calor" = "critério técnico com dados IPMA",
+    "Stress térmico UTCI" = "indicador bioclimático com dados IPMA",
+    "Clima Extremo" = "sinal técnico complementar para edifícios",
+    "indicador técnico"
+  )
+}
+
+summary_future_requires_preparation <- function(signal) {
+  future_order <- summary_order_value(signal$future_order)
+  today_order <- summary_order_value(signal$today_order)
+
+  future_order > 0 && (today_order <= 0 || future_order > today_order)
+}
+
+summary_preparation_signals <- function(signals) {
+  Filter(summary_future_requires_preparation, signals)
+}
+
+summary_operational_basis_lines <- function(model) {
+  current <- Filter(function(signal) {
+    summary_order_value(signal$today_order) > 0
+  }, model$signals)
+  preparation <- summary_preparation_signals(model$signals)
+
+  current_text <- if (length(current) == 0) {
+    "sem sinais ativos para hoje"
+  } else {
+    paste(vapply(current, function(signal) signal$domain, character(1)), collapse = ", ")
+  }
+  preparation_text <- if (length(preparation) == 0) {
+    "sem agravamento futuro que exija preparação adicional"
+  } else {
+    paste(
+      vapply(preparation, function(signal) signal$domain, character(1)),
+      collapse = ", "
+    )
+  }
+
+  paste0(
+    "**Fundamento temporal:** atuação hoje por ",
+    current_text,
+    "; preparação antecipada por ",
+    preparation_text,
+    "."
+  )
 }
 
 summary_active_factor_lines <- function(signals) {
@@ -1600,19 +1760,64 @@ summary_active_factor_lines <- function(signals) {
     return("- Sem sinais relevantes acima da vigilância habitual.")
   }
 
+  active_level <- vapply(active, function(signal) {
+    summary_local_risk_domain_level(
+      signal,
+      summary_order_value(signal$today_order)
+    )$level
+  }, numeric(1))
   active_order <- vapply(active, function(signal) {
     summary_order_value(signal$today_order)
   }, numeric(1))
-  active <- active[order(-active_order)]
+  active <- active[order(-active_level, -active_order)]
 
   vapply(active, function(signal) {
     paste0(
-      "- ",
+      "- **",
       signal$domain,
+      "** (",
+      summary_signal_authority(signal$domain),
+      ")",
       ": ",
       signal$today,
       "; motivo: ",
       signal$driver,
+      "."
+    )
+  }, character(1))
+}
+
+summary_preparation_factor_lines <- function(signals) {
+  preparation <- summary_preparation_signals(signals)
+  if (length(preparation) == 0) {
+    return("- Sem agravamentos previstos que exijam preparação adicional hoje.")
+  }
+
+  future_level <- vapply(preparation, function(signal) {
+    summary_local_risk_domain_level(
+      signal,
+      summary_order_value(signal$future_order)
+    )$level
+  }, numeric(1))
+  future_order <- vapply(preparation, function(signal) {
+    summary_order_value(signal$future_order)
+  }, numeric(1))
+  preparation <- preparation[order(-future_level, -future_order)]
+
+  vapply(preparation, function(signal) {
+    future_driver <- summary_as_text(signal$future_driver)
+    if (future_driver == "") {
+      future_driver <- summary_as_text(signal$driver)
+    }
+    paste0(
+      "- **",
+      signal$domain,
+      "** (",
+      summary_signal_authority(signal$domain),
+      "): preparar hoje para ",
+      summary_future_action_text(signal$future),
+      "; motivo: ",
+      future_driver,
       "."
     )
   }, character(1))
@@ -1637,6 +1842,30 @@ summary_extract_future_date <- function(text) {
   }
 
   format(date_value, "%d/%m")
+}
+
+summary_display_date_text <- function(text) {
+  text <- summary_as_text(text)
+  matches <- gregexpr("\\d{4}-\\d{2}-\\d{2}", text)
+  values <- regmatches(text, matches)[[1]]
+  if (length(values) == 0 || identical(values, character(0))) {
+    return(text)
+  }
+
+  replacements <- vapply(values, function(value) {
+    date_value <- as.Date(value)
+    if (is.na(date_value)) value else format(date_value, "%d/%m")
+  }, character(1))
+  regmatches(text, matches) <- list(replacements)
+  text
+}
+
+summary_future_action_text <- function(text) {
+  sub(
+    "^Amanhã:",
+    "amanhã,",
+    summary_display_date_text(text)
+  )
 }
 
 summary_horizon_part <- function(signal) {
@@ -1703,7 +1932,117 @@ summary_domain_text <- function(signals, domain, field = "today") {
   matches[[1]][[field]]
 }
 
-summary_today_recommendations <- function(signals) {
+summary_future_preparation_recommendations <- function(signals) {
+  preparation <- summary_preparation_signals(signals)
+  thermal_domains <- c(
+    "Temperatura DSP",
+    "Onda de calor",
+    "Stress térmico UTCI",
+    "ÍCARO/FRIESA",
+    "Clima Extremo"
+  )
+  thermal <- Filter(function(signal) signal$domain %in% thermal_domains, preparation)
+  other <- Filter(function(signal) !signal$domain %in% thermal_domains, preparation)
+  general <- character()
+  vulnerable <- character()
+  establishments <- character()
+
+  for (signal in other) {
+    future_text <- summary_future_action_text(signal$future)
+    domain <- signal$domain
+
+    if (domain == "Qualidade do ar") {
+      general <- c(
+        general,
+        paste0(
+          "Preparar comunicação sobre qualidade do ar para ",
+          future_text,
+          ", incluindo redução de esforço intenso ao ar livre se houver sintomas."
+        )
+      )
+      vulnerable <- c(
+        vulnerable,
+        "Antecipar a disponibilidade da medicação habitual e a possibilidade de reduzir exposição exterior caso a qualidade do ar agrave."
+      )
+      establishments <- c(
+        establishments,
+        "Preparar a adaptação de atividades exteriores intensas para grupos vulneráveis se a previsão de qualidade do ar se confirmar."
+      )
+    } else if (domain == "Avisos IPMA") {
+      general <- c(
+        general,
+        paste0(
+          "Acompanhar as atualizações IPMA e preparar comunicação preventiva para ",
+          future_text,
+          "."
+        )
+      )
+      vulnerable <- c(
+        vulnerable,
+        "Antecipar apoio a pessoas com maior dificuldade em adaptar deslocações, exposição ou condições de conforto ao fenómeno previsto."
+      )
+      establishments <- c(
+        establishments,
+        "Rever hoje atividades exteriores, contactos e medidas de contingência aplicáveis ao fenómeno IPMA previsto."
+      )
+    } else if (domain == "Índice UV") {
+      general <- c(
+        general,
+        paste0("Preparar comunicação de fotoproteção para ", future_text, ".")
+      )
+      vulnerable <- c(
+        vulnerable,
+        "Antecipar proteção reforçada para crianças e pessoas particularmente sensíveis à radiação UV."
+      )
+      establishments <- c(
+        establishments,
+        "Planear horários, sombra e proteção individual para atividades exteriores no período previsto."
+      )
+    }
+  }
+
+  if (length(thermal) > 0) {
+    thermal_text <- paste(
+      vapply(thermal, function(signal) {
+        paste0(
+          signal$domain,
+          " (",
+          summary_display_date_text(signal$future),
+          ")"
+        )
+      }, character(1)),
+      collapse = "; "
+    )
+    general <- c(
+      general,
+      paste0(
+        "Preparar reforço das medidas de proteção térmica perante ",
+        thermal_text,
+        "."
+      )
+    )
+    vulnerable <- c(
+      vulnerable,
+      "Antecipar contactos, hidratação, medicação e acesso a ambiente termicamente confortável para pessoas vulneráveis."
+    )
+    establishments <- c(
+      establishments,
+      "Verificar hoje conforto térmico, água, sombra/abrigo, capacidade de arrefecimento e alternativas às atividades de maior exposição."
+    )
+  }
+
+  list(
+    general = unique(general),
+    vulnerable = unique(vulnerable),
+    establishments = unique(establishments)
+  )
+}
+
+summary_today_recommendations <- function(
+  signals,
+  include_horizon = TRUE,
+  include_future = FALSE
+) {
   general <- character()
   vulnerable <- character()
   establishments <- character()
@@ -1846,6 +2185,13 @@ summary_today_recommendations <- function(signals) {
     )
   }
 
+  if (include_future) {
+    preparation <- summary_future_preparation_recommendations(signals)
+    general <- c(general, preparation$general)
+    vulnerable <- c(vulnerable, preparation$vulnerable)
+    establishments <- c(establishments, preparation$establishments)
+  }
+
   if (length(general) == 0) {
     general <- "Manter atividades habituais, com vigilância diária das atualizações."
   } else {
@@ -1866,15 +2212,19 @@ summary_today_recommendations <- function(signals) {
 
   horizon <- summary_recommendation_horizon(signals)
 
-  c(
-    paste0("Horizonte temporal: ", horizon),
-    "",
+  recommendation_lines <- c(
     paste0("**Comunicação geral:** ", general),
     "",
     paste0("**Grupos vulneráveis:** ", vulnerable),
     "",
     paste0("**Estabelecimentos/equipamentos:** ", establishments)
   )
+
+  if (include_horizon) {
+    return(c(paste0("Horizonte temporal: ", horizon), "", recommendation_lines))
+  }
+
+  recommendation_lines
 }
 
 summary_future_lines <- function(signals) {
@@ -1919,6 +2269,24 @@ summary_future_lines <- function(signals) {
   }, character(1))
 }
 
+summary_operational_horizon_lines <- function(signals) {
+  relevant <- Filter(function(signal) {
+    summary_signal_has_future_data(signal) &&
+      (
+        summary_order_value(signal$today_order) > 0 ||
+          summary_order_value(signal$future_order) > 0
+      )
+  }, signals)
+
+  if (length(relevant) == 0) {
+    return("- Sem horizonte futuro disponível para sinais relevantes.")
+  }
+
+  vapply(relevant, function(signal) {
+    paste0("- ", summary_horizon_part(signal), ".")
+  }, character(1))
+}
+
 summary_no_signal_lines <- function(signals) {
   inactive <- Filter(function(signal) {
     summary_order_value(signal$today_order) <= 0 &&
@@ -1934,9 +2302,29 @@ summary_no_signal_lines <- function(signals) {
   }, character(1))
 }
 
+summary_signal_decision <- function(signal) {
+  today_order <- summary_order_value(signal$today_order)
+  future_order <- summary_order_value(signal$future_order)
+
+  if (today_order > 0 && future_order > today_order) {
+    return("Atuar hoje e preparar agravamento")
+  }
+  if (today_order > 0) {
+    return("Aplicar medidas hoje")
+  }
+  if (future_order > 0) {
+    return("Preparar e vigiar")
+  }
+  if (today_order < 0 && future_order < 0) {
+    return("Dados indisponíveis")
+  }
+
+  "Sem ativação"
+}
+
 summary_table_lines <- function(signals) {
   c(
-    "| Dimensão | Hoje | Próximos dias | Principal motivo |",
+    "| Dimensão | Hoje | Previsão relevante | Decisão |",
     "|---|---|---|---|",
     vapply(signals, function(signal) {
       paste0(
@@ -1945,50 +2333,89 @@ summary_table_lines <- function(signals) {
         " | ",
         signal$today,
         " | ",
-        signal$future,
+        summary_display_date_text(signal$future),
         " | ",
-        signal$driver,
+        summary_signal_decision(signal),
         " |"
       )
     }, character(1))
   )
 }
 
-build_operational_summary_section <- function(report_date) {
-  signals <- summary_collect_signals(report_date)
-  local_risk <- summary_local_risk_assessment(signals)
+summary_data_limitation_lines <- function(report_date) {
+  lines <- c(
+    "- O nível operacional é uma síntese de apoio à decisão e não substitui avisos oficiais nem a ativação formal do plano.",
+    paste(
+      "- Não integra indicadores assistenciais internos da ULSM",
+      "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
+    )
+  )
+  source_errors <- summary_source_error_lines(report_date)
+  freshness <- summary_source_freshness_lines(report_date)
+
+  if (length(source_errors) > 0) {
+    lines <- c(lines, source_errors)
+  }
+  if (length(freshness) > 0) {
+    lines <- c(lines, freshness)
+  }
+
+  lines
+}
+
+build_operational_summary_section <- function(report_date, model = NULL) {
+  if (is.null(model)) {
+    model <- summary_build_operational_model(report_date)
+  }
+  signals <- model$signals
 
   c(
     paste0("<!-- ", SUMMARY_MARKER, ":start -->"),
-    "## Sinais ativos",
+    "## Decisão operacional",
     "",
-    summary_local_risk_snapshot_lines(local_risk, summary_global_level(signals)),
+    summary_local_risk_snapshot_lines(model),
     "",
-    "### Sinais que justificam",
+    summary_operational_basis_lines(model),
+    "",
+    "## Alertas e pré-alertas ativos",
+    "",
+    "### Sinais aplicáveis hoje",
     "",
     summary_active_factor_lines(signals),
     "",
-    "## Próximos dias a vigiar",
+    "### Preparação baseada na previsão",
     "",
-    summary_future_lines(signals),
+    summary_preparation_factor_lines(signals),
     "",
-    "### Quadro rápido de risco",
+    "## Ações a executar hoje",
+    "",
+    summary_today_recommendations(
+      signals,
+      include_horizon = FALSE,
+      include_future = TRUE
+    ),
+    "",
+    "## Horizonte operacional",
+    "",
+    summary_operational_horizon_lines(signals),
+    "",
+    "## Quadro rápido de risco",
     "",
     summary_table_lines(signals),
     "",
-    "## Recomendações",
-    "",
-    summary_today_recommendations(signals),
-    "",
-    "## Indicadores sem sinal",
+    "## Sem ativação adicional",
     "",
     summary_no_signal_lines(signals),
+    "",
+    "## Limitações dos dados",
+    "",
+    summary_data_limitation_lines(report_date),
     paste0("<!-- ", SUMMARY_MARKER, ":end -->")
   )
 }
 
-replace_operational_summary <- function(content, report_date) {
-  section <- build_operational_summary_section(report_date)
+replace_operational_summary <- function(content, report_date, model = NULL) {
+  section <- build_operational_summary_section(report_date, model)
   start_marker <- paste0("<!-- ", SUMMARY_MARKER, ":start -->")
   end_marker <- paste0("<!-- ", SUMMARY_MARKER, ":end -->")
   start <- which(content == start_marker)
@@ -2051,9 +2478,82 @@ ensure_detail_heading <- function(content) {
   summary_compact_blank_lines(c(before, "## Indicadores detalhados", "", after))
 }
 
-finalize_daily_report <- function(content, report_date) {
+build_quick_daily_report <- function(report_date, model = NULL) {
+  if (is.null(model)) {
+    model <- summary_build_operational_model(report_date)
+  }
+  signals <- model$signals
+  full_report_link <- paste0("../", report_date, ".md")
+
+  summary_compact_blank_lines(c(
+    summary_report_title(report_date),
+    "",
+    "## Resumo operacional",
+    "",
+    summary_local_risk_snapshot_lines(model),
+    "",
+    summary_operational_basis_lines(model),
+    "",
+    "## Alertas e pré-alertas ativos",
+    "",
+    "### Sinais aplicáveis hoje",
+    "",
+    summary_active_factor_lines(signals),
+    "",
+    "### Preparação baseada na previsão",
+    "",
+    summary_preparation_factor_lines(signals),
+    "",
+    "## Ações a executar hoje",
+    "",
+    summary_today_recommendations(
+      signals,
+      include_horizon = FALSE,
+      include_future = TRUE
+    ),
+    "",
+    "## Horizonte operacional",
+    "",
+    summary_operational_horizon_lines(signals),
+    "",
+    "## Sem ativação adicional",
+    "",
+    summary_no_signal_lines(signals),
+    "",
+    "## Limitações dos dados",
+    "",
+    summary_data_limitation_lines(report_date),
+    "",
+    "## Relatório completo",
+    "",
+    paste0("[Consultar o boletim técnico completo](", full_report_link, ").")
+  ))
+}
+
+write_quick_daily_report <- function(
+  report_date,
+  model = NULL,
+  quick_dir = file.path("daily", "resumo")
+) {
+  if (is.null(model)) {
+    model <- summary_build_operational_model(report_date)
+  }
+  dir.create(quick_dir, showWarnings = FALSE, recursive = TRUE)
+  report_path <- file.path(quick_dir, paste0(report_date, ".md"))
+  writeLines(
+    build_quick_daily_report(report_date, model),
+    report_path,
+    useBytes = TRUE
+  )
+  report_path
+}
+
+finalize_daily_report <- function(content, report_date, model = NULL) {
+  if (is.null(model)) {
+    model <- summary_build_operational_model(report_date)
+  }
   content <- normalize_report_header(content, report_date)
-  content <- replace_operational_summary(content, report_date)
+  content <- replace_operational_summary(content, report_date, model)
   content <- ensure_detail_heading(content)
   content <- replace_source_status_section(content, report_date)
   replace_report_sources(content)

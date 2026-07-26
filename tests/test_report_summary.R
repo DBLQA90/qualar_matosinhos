@@ -14,6 +14,12 @@ expect_identical <- function(actual, expected, label) {
   }
 }
 
+expect_true <- function(actual, label) {
+  if (!isTRUE(actual)) {
+    stop(label, call. = FALSE)
+  }
+}
+
 horizon <- function(dates, orders, values = NULL) {
   rows <- data.frame(
     target_date = dates,
@@ -97,4 +103,91 @@ expect_identical(
   "Missing forecast days must not be presented as continuous duration."
 )
 
-cat("OK report summary horizon tests\n")
+future_red <- list(summary_signal(
+  "Clima Extremo",
+  today = "Verde",
+  future = "2026-07-27: Extremo (3)",
+  today_order = 0,
+  future_order = 3
+))
+future_red_model <- summary_build_operational_model(
+  "2026-07-26",
+  future_red
+)
+expect_identical(
+  future_red_model$today$level,
+  0,
+  "A future red signal must not be classified as red today."
+)
+expect_identical(
+  future_red_model$operational_level,
+  2,
+  "A future red signal must trigger orange preparation today."
+)
+expect_identical(
+  future_red_model$phase,
+  "Preparação reforçada",
+  "A future-only red signal must produce a preparation phase."
+)
+
+current_red <- list(summary_signal(
+  "Avisos IPMA",
+  today = "Vermelho",
+  future = "Vermelho",
+  today_order = 3,
+  future_order = 3
+))
+current_red_model <- summary_build_operational_model(
+  "2026-07-26",
+  current_red
+)
+expect_identical(
+  current_red_model$operational_level,
+  3,
+  "A red signal applicable today must remain an operational emergency."
+)
+
+current_orange_future_red <- list(summary_signal(
+  "Clima Extremo",
+  today = "Alto (2)",
+  future = "2026-07-27: Extremo (3)",
+  today_order = 2,
+  future_order = 3
+))
+escalation_model <- summary_build_operational_model(
+  "2026-07-26",
+  current_orange_future_red
+)
+expect_identical(
+  escalation_model$operational_level,
+  2,
+  "A future escalation must not overwrite today's orange operational level."
+)
+expect_identical(
+  escalation_model$phase,
+  "Resposta atual e preparação para agravamento",
+  "Current response and future preparation must be explicit."
+)
+
+quick <- build_quick_daily_report("2026-07-26", escalation_model)
+full <- build_operational_summary_section("2026-07-26", escalation_model)
+expected_badge <- "**Nível operacional:** 🟠 Laranja - Nível 2 - Resposta reforçada."
+expect_true(
+  expected_badge %in% quick && expected_badge %in% full,
+  "Quick and full reports must use the same operational model."
+)
+expect_true(
+  !any(grepl("^\\| Dimensão \\|", quick)),
+  "The mobile summary must not include the wide risk table."
+)
+expect_true(
+  any(grepl("boletim técnico completo", quick, fixed = TRUE)),
+  "The mobile summary must link to the full report."
+)
+expect_identical(
+  summary_display_date_text("2026-07-27: Extremo"),
+  "27/07: Extremo",
+  "Operational text must display forecast dates compactly."
+)
+
+cat("OK report summary temporal and operational tests\n")

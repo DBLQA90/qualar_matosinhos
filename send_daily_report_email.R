@@ -30,7 +30,7 @@ require_env <- function(name) {
 
 markdown_summary <- function(report_path) {
   content <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
-  stop_at <- grep("^## Indicadores sem sinal", content)
+  stop_at <- grep("^## Horizonte operacional", content)
   if (length(stop_at) == 0) {
     stop_at <- grep(paste0("^<!-- ", "sintese", ":end -->$"), content)
   }
@@ -97,6 +97,8 @@ report_path <- file.path(DAILY_DIR, paste0(report_date, ".md"))
 if (!file.exists(report_path)) {
   stop("Daily report not found: ", report_path, call. = FALSE)
 }
+quick_report_path <- file.path(DAILY_DIR, "resumo", paste0(report_date, ".md"))
+summary_path <- if (file.exists(quick_report_path)) quick_report_path else report_path
 
 repo_url <- env_value("GITHUB_REPOSITORY_URL", "https://github.com/DBLQA90/qualar_matosinhos")
 report_url <- paste0(repo_url, "/blob/main/", report_path)
@@ -115,7 +117,7 @@ if (!nzchar(from)) {
 
 subject <- env_value("MAIL_SUBJECT", paste0("PNPRSS Matosinhos | ", report_date))
 body <- c(
-  markdown_summary(report_path),
+  markdown_summary(summary_path),
   "",
   paste0("Relatório completo: ", report_url)
 )
