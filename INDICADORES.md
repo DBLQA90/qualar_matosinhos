@@ -288,6 +288,24 @@ O catálogo distingue:
 - **Ficheiros:** `data/openmeteo_matosinhos_history_daily.csv`, `data/openmeteo_matosinhos_forecasts.csv`, `data/openmeteo_matosinhos_forecast_latest.csv`, `data/openmeteo_matosinhos_historical_forecasts.csv`, `data/openmeteo_matosinhos_previous_runs_daily.csv`, `data/openmeteo_matosinhos_forecast_errors.csv` e respetivos resumos/estado.
 - **Limitação:** reanálise não equivale a observação de estação; erros são calculados contra a própria ERA5-Land para manter independência metodológica.
 
+### QA-TEMP-COMPARISON - Comparação pareada IPMA/Open-Meteo
+
+- **Estado:** analítico automatizado; não entra no boletim operacional.
+- **Finalidade:** medir, numa amostra comum, o viés e a qualidade relativa das previsões IPMA e Open-Meteo.
+- **Unidade de comparação:** mesmo ciclo de recolha (`morning`/`afternoon`), data válida, horizonte e referência observada.
+- **Horizonte:** todos os horizontes simultaneamente disponíveis nas duas fontes.
+- **Referência principal:** média das estações IPMA com pelo menos 20 observações horárias no dia.
+- **Análises de sensibilidade:** média estrita de Pedras Rubras/S. Gens quando ambas estão completas, cada estação isolada, grelha municipal IPMA e fallback operacional incluindo dias incompletos.
+- **Métricas:** viés com intervalo de confiança de 95%, MAE, RMSE, P90 do erro absoluto, correlação, fonte mais próxima por dia e diferença de MAE entre fontes.
+- **Empate:** diferenças até 0,05 ºC entre os erros absolutos das fontes são classificadas como empate.
+- **Tamanho da amostra:** `insufficient` para `n<10`, `limited` para `10-29`, `preliminary` para `30-59` e `more_stable` para `n>=60`.
+- **Estratificação:** por ciclo/horizonte, mês da data prevista e patamar da temperatura máxima observada (`<25`, `25-29,9`, `>=30 ºC`).
+- **Ficheiros:** `data/temperature_observation_references.csv`, `data/temperature_forecast_comparison_paired.csv` e `data/temperature_forecast_comparison_summary.csv`.
+- **Dados em falta:** só são comparadas linhas com as duas previsões e uma observação válida; não se imputam valores.
+- **Limitações:** a cobertura observada recente é curta e desigual entre estações; a localização das estações e o ponto/grelha de cada previsão não são equivalentes; a recolha Open-Meteo não expõe aqui a hora exata da corrida do modelo.
+- **Regra de utilização:** não aplicar correções automáticas antes de existir amostra suficiente, estabilidade sazonal e validação fora da amostra.
+- **Implementação:** `evaluate_temperature_forecasts.R`; teste em `tests/test_temperature_forecast_comparison.R`.
+
 ### CLIMATE-PERCENTILES - Percentis térmicos ERA5-Land
 
 - **Estado:** analítico, integração operacional pendente.

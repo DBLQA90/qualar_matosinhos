@@ -221,6 +221,13 @@ if (mode %in% c("all", "data")) {
     run_step(
       cycle_id,
       "data",
+      "Comparação IPMA/Open-Meteo",
+      "Rscript",
+      "evaluate_temperature_forecasts.R"
+    ),
+    run_step(
+      cycle_id,
+      "data",
       "Temperatura percentil ERA5-Land",
       "Rscript",
       c("fetch_era5_temperature_climatology.R", "alerts")
