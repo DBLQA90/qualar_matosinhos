@@ -172,6 +172,13 @@ if (mode %in% c("all", "data")) {
     run_step(
       cycle_id,
       "data",
+      "Noites tropicais IPMA",
+      "Rscript",
+      "derive_tropical_nights.R"
+    ),
+    run_step(
+      cycle_id,
+      "data",
       "SNS/INSA",
       "Rscript",
       c("fetch_ipma.R", "sns-health")
@@ -189,6 +196,13 @@ if (mode %in% c("all", "data")) {
       "Avisos IPMA",
       "Rscript",
       c("fetch_ipma.R", "alerts")
+    ),
+    run_step(
+      cycle_id,
+      "data",
+      "Águas balneares APA",
+      "Rscript",
+      "fetch_bathing_water.R"
     ),
     run_step(
       cycle_id,

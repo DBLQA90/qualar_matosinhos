@@ -171,9 +171,12 @@ jobs:
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
         run: Rscript run_daily_pipeline.R "${{ steps.gate.outputs.cycle_id }}" report
 
-      - name: Testar lógica temporal e operacional do relatório
+      - name: Testar indicadores e lógica do relatório
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
-        run: Rscript tests/test_report_summary.R
+        run: |
+          Rscript tests/test_report_summary.R
+          Rscript tests/test_tropical_nights.R
+          Rscript tests/test_bathing_water.R
 
       - name: Validar relatório diário
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')

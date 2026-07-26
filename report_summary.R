@@ -26,6 +26,12 @@ REPORT_SOURCE_SECTIONS <- list(
     "- DGS, temperaturas elevadas - recomendações: https://www.dgs.pt/em-destaque/temperaturas-elevadas-recomendacoes-da-dgs.aspx",
     "- SNS/DGS/INSA, recomendações contra o calor: https://www.sns.min-saude.pt/comunicado-conjunto-aumento-da-temperatura-recomendacoes-contra-o-calor/"
   ),
+  "Noites tropicais" = c(
+    "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+    "- IPMA, definição climatológica usada nos boletins: noite tropical corresponde a temperatura mínima do ar igual ou superior a 20 ºC.",
+    "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
+    "- DGS, recomendações à população em períodos de calor: https://www.dgs.pt/em-destaque/recomendacoes-a-populacao-calor.aspx"
+  ),
   "Onda de calor" = c(
     "- IPMA, definição de Onda de Calor: https://www.ipma.pt/pt/enciclopedia/clima/index.html?page=onda.calor.xml",
     "- IPMA, monitorização de Ondas de Calor: https://www.ipma.pt/pt/oclima/ondascalor/",
@@ -69,6 +75,13 @@ REPORT_SOURCE_SECTIONS <- list(
     "- IPMA, perigo de incêndio rural: https://www.ipma.pt/pt/enciclopedia/otempo/risco.incendio/index.jsp?page=pirdl.xml",
     "- ANEPC, avisos à população e medidas preventivas: https://prociv.gov.pt/pt/avisos-a-populacao/",
     "- ANEPC, perigo de incêndio rural - medidas preventivas: https://prociv.gov.pt/pt/noticias/20082025-perigo-de-incendio-rural-medidas-preventivas/"
+  ),
+  "Águas balneares" = c(
+    "- APA, informação e monitorização das águas balneares: https://apambiente.pt/agua/aguas-balneares",
+    "- APA, época balnear 2026 e acesso ao InfoÁgua: https://apambiente.pt/apa/epoca-balnear-2026",
+    "- APA, restrições à prática balnear: https://apambiente.pt/apa/restricoes-pratica-balnear",
+    "- APA/SNIAmb, serviço geográfico oficial das praias: https://sniambgeoogc.apambiente.pt/getogc/rest/services/SNIAmb/Praias/MapServer/0",
+    "- APA, esclarecimento sobre desaconselhamentos e interdições: https://apambiente.pt/destaque2/epoca-balnear-2023-esclarecimento-apa"
   )
 )
 
@@ -719,6 +732,15 @@ summary_source_freshness_lines <- function(report_date) {
       require_future = FALSE
     ),
     summary_source_coverage_line(
+      "Noites tropicais",
+      "data/ipma_matosinhos_tropical_nights_latest.csv",
+      "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE,
+      value_col = "tmin_c"
+    ),
+    summary_source_coverage_line(
       "Onda de calor",
       "data/ipma_matosinhos_heat_waves_latest.csv",
       "target_date",
@@ -757,6 +779,14 @@ summary_source_freshness_lines <- function(report_date) {
       "Avisos IPMA",
       "data/ipma_matosinhos_alerts_latest.csv",
       "target_date",
+      report_date,
+      require_today = TRUE,
+      require_future = FALSE
+    ),
+    summary_source_coverage_line(
+      "Águas balneares",
+      "data/apa_matosinhos_bathing_water_latest.csv",
+      "snapshot_date",
       report_date,
       require_today = TRUE,
       require_future = FALSE
@@ -1331,11 +1361,137 @@ summary_ipma_alert_signal <- function(report_date) {
   )
 }
 
+summary_tropical_night_signal <- function(report_date) {
+  rows <- summary_read_csv("data/ipma_matosinhos_tropical_nights_latest.csv")
+  if (nrow(rows) == 0) {
+    return(summary_signal("Noites tropicais"))
+  }
+
+  today <- summary_date_rows(rows, "target_date", report_date)
+  future <- summary_after_date_rows(rows, "target_date", report_date)
+  today_highest <- summary_highest_row(today, "signal_level_order", "target_date")
+  future_highest <- summary_highest_row(future, "signal_level_order", "target_date")
+
+  status_text <- function(row, include_date = FALSE) {
+    if (nrow(row) == 0) {
+      return("Sem dados")
+    }
+    text <- summary_clean(row$status)
+    if (isTRUE(include_date)) {
+      return(paste0(summary_clean(row$target_date), ": ", text))
+    }
+    text
+  }
+
+  driver_text <- function(row) {
+    if (nrow(row) == 0) {
+      return("sem dados")
+    }
+    paste0(
+      "Tmin ",
+      summary_clean(row$tmin_c),
+      " ºC; sequência ",
+      summary_clean(row$sequence_length, "0"),
+      " noite(s)"
+    )
+  }
+
+  summary_signal(
+    "Noites tropicais",
+    status_text(today_highest),
+    status_text(future_highest, include_date = TRUE),
+    driver_text(today_highest),
+    summary_to_num(today_highest$signal_level_order),
+    summary_to_num(future_highest$signal_level_order),
+    summary_horizon_from_rows(
+      "Noites tropicais",
+      rows,
+      "target_date",
+      "signal_level_order",
+      report_date,
+      value_col = "tmin_c"
+    ),
+    future_driver = driver_text(future_highest)
+  )
+}
+
+summary_bathing_water_signal <- function(report_date) {
+  rows <- summary_read_csv("data/apa_matosinhos_bathing_water_latest.csv")
+  if (nrow(rows) == 0) {
+    return(summary_signal("Águas balneares"))
+  }
+
+  today <- summary_date_rows(rows, "snapshot_date", report_date)
+  if (nrow(today) == 0) {
+    return(summary_signal("Águas balneares"))
+  }
+
+  orders <- suppressWarnings(as.numeric(today$risk_level_order))
+  highest_order <- if (all(is.na(orders))) -1 else max(orders, na.rm = TRUE)
+
+  active <- today[!is.na(orders) & orders > 0, , drop = FALSE]
+  in_season <- today[
+    tolower(today$in_bathing_season) %in% "true",
+    ,
+    drop = FALSE
+  ]
+
+  today_text <- if (nrow(active) > 0) {
+    restriction_types <- summary_join_unique(
+      active$restriction_type,
+      "restrição ativa"
+    )
+    beach_count <- nrow(active)
+    water_count <- length(unique(active$bathing_water_code))
+    paste0(
+      restriction_types,
+      " em ",
+      beach_count,
+      if (beach_count == 1) " praia, " else " praias, ",
+      water_count,
+      if (water_count == 1) " água balnear" else " águas balneares"
+    )
+  } else if (nrow(in_season) == 0) {
+    "Fora da época balnear"
+  } else if (highest_order < 0) {
+    "Sem dados de estado"
+  } else {
+    paste0("Sem restrições ativas (", nrow(in_season), " praia(s) monitorizada(s))")
+  }
+
+  driver <- if (nrow(active) > 0) {
+    beach_names <- summary_join_unique(
+      active$beach_name,
+      "não identificada"
+    )
+    paste0(
+      if (nrow(active) == 1) "praia " else "praias ",
+      beach_names,
+      "; ",
+      summary_join_unique(active$restriction_reason, "não indicado")
+    )
+  } else {
+    "sem praias com desaconselhamento ou interdição no último snapshot"
+  }
+
+  summary_signal(
+    "Águas balneares",
+    today_text,
+    "Sem previsão",
+    driver,
+    highest_order,
+    -1,
+    ""
+  )
+}
+
 summary_collect_signals <- function(report_date) {
   list(
     summary_qualar_signal(report_date),
     summary_ipma_alert_signal(report_date),
+    summary_bathing_water_signal(report_date),
     summary_temperature_signal(report_date),
+    summary_tropical_night_signal(report_date),
     summary_heat_wave_signal(report_date),
     summary_thermal_signal(report_date),
     summary_sns_signal(report_date),
@@ -1405,6 +1561,15 @@ summary_local_risk_domain_level <- function(signal, order = NULL) {
   domain <- signal$domain
   if (domain %in% c("Avisos IPMA", "Qualidade do ar", "Clima Extremo")) {
     return(list(level = min(3, max(1, floor(order))), critical = order >= 3))
+  }
+
+  if (domain == "Águas balneares") {
+    return(list(level = min(3, max(1, floor(order))), critical = order >= 3))
+  }
+
+  if (domain == "Noites tropicais") {
+    # Complementary heat signal without an approved standalone activation threshold.
+    return(list(level = 0, critical = FALSE))
   }
 
   if (domain == "ÍCARO/FRIESA") {
@@ -1700,10 +1865,12 @@ summary_signal_authority <- function(domain) {
   switch(
     domain,
     "Avisos IPMA" = "aviso/indicador oficial IPMA",
+    "Águas balneares" = "estado/restrição oficial APA e Autoridade de Saúde",
     "Índice UV" = "previsão oficial IPMA",
     "ÍCARO/FRIESA" = "índice oficial SNS/INSA",
     "Qualidade do ar" = "previsão ambiental QualAr",
     "Temperatura DSP" = "regra técnica local",
+    "Noites tropicais" = "critério climatológico com dados IPMA",
     "Onda de calor" = "critério técnico com dados IPMA",
     "Stress térmico UTCI" = "indicador bioclimático com dados IPMA",
     "Clima Extremo" = "sinal técnico complementar para edifícios",
@@ -1936,6 +2103,7 @@ summary_future_preparation_recommendations <- function(signals) {
   preparation <- summary_preparation_signals(signals)
   thermal_domains <- c(
     "Temperatura DSP",
+    "Noites tropicais",
     "Onda de calor",
     "Stress térmico UTCI",
     "ÍCARO/FRIESA",
@@ -2109,7 +2277,28 @@ summary_today_recommendations <- function(
     )
   }
 
+  if (summary_has_domain(signals, "Águas balneares")) {
+    water_text <- summary_domain_text(signals, "Águas balneares", "driver")
+    general <- c(
+      general,
+      paste0(
+        "Existe restrição à prática balnear (",
+        water_text,
+        "); não tomar banho nem entrar na água nas praias afetadas e respeitar a sinalização local."
+      )
+    )
+    vulnerable <- c(
+      vulnerable,
+      "Crianças, pessoas idosas, grávidas, pessoas imunocomprometidas ou com feridas/doença de pele devem evitar rigorosamente contacto com a água balnear afetada."
+    )
+    establishments <- c(
+      establishments,
+      "Cancelar atividades aquáticas nas praias afetadas, informar utentes e equipas e só retomar após levantamento oficial da restrição."
+    )
+  }
+
   if (summary_has_domain(signals, "Temperatura DSP") ||
+      summary_has_domain(signals, "Noites tropicais") ||
       summary_has_domain(signals, "Onda de calor") ||
       summary_has_domain(signals, "ÍCARO/FRIESA")) {
     general <- c(
@@ -2123,6 +2312,26 @@ summary_today_recommendations <- function(
     establishments <- c(
       establishments,
       "Garantir água, sombra/abrigo e possibilidade de ajustar horários ou intensidade das atividades."
+    )
+  }
+
+  if (summary_has_domain(signals, "Noites tropicais")) {
+    tropical_text <- summary_domain_text(signals, "Noites tropicais")
+    general <- c(
+      general,
+      paste0(
+        "Há sinal de noite tropical (",
+        tropical_text,
+        "); favorecer arrefecimento noturno seguro, ventilando quando o exterior estiver mais fresco e mantendo hidratação."
+      )
+    )
+    vulnerable <- c(
+      vulnerable,
+      "Reforçar contacto ao fim do dia e na manhã seguinte com pessoas que vivam sós ou em habitações quentes, vigiando sono perturbado, desidratação e agravamento de doença crónica."
+    )
+    establishments <- c(
+      establishments,
+      "Verificar a temperatura dos quartos e espaços de permanência noturna, assegurar água acessível e aplicar o plano de arrefecimento dos edifícios."
     )
   }
 

@@ -190,4 +190,21 @@ expect_identical(
   "Operational text must display forecast dates compactly."
 )
 
+tropical_only <- list(summary_signal(
+  "Noites tropicais",
+  today = "Noite tropical prevista",
+  future = "2026-07-27: Noite tropical prevista",
+  today_order = 1,
+  future_order = 1
+))
+tropical_model <- summary_build_operational_model(
+  "2026-07-26",
+  tropical_only
+)
+expect_identical(
+  tropical_model$operational_level,
+  0,
+  "Tropical nights must remain complementary until a standalone activation threshold is approved."
+)
+
 cat("OK report summary temporal and operational tests\n")
