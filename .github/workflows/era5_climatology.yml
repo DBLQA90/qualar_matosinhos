@@ -13,11 +13,12 @@ env:
 jobs:
   era5-climatology:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -28,7 +29,7 @@ jobs:
         with:
           r-version: 'release'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -53,7 +54,23 @@ jobs:
           CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
         run: Rscript fetch_era5_temperature_climatology.R all
 
+      - name: Validar climatologia gerada
+        shell: bash
+        run: |
+          for file in \
+            data/era5_matosinhos_daily_temperature_1991_2020.csv \
+            data/era5_matosinhos_temperature_percentiles.csv \
+            data/era5_matosinhos_temperature_percentile_alerts.csv \
+            data/era5_matosinhos_temperature_percentile_alert_latest.csv; do
+            if [ ! -s "$file" ]; then
+              echo "::error::Ficheiro ERA5-Land ausente ou vazio: ${file}"
+              exit 1
+            fi
+          done
+
       - name: Commit da climatologia se mudou
+        id: publish
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -70,5 +87,37 @@ jobs:
             echo "Sem alterações ERA5-Land, nada a fazer."
           else
             git commit -m "Update ERA5-Land Matosinhos climatology $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            git push origin HEAD:main
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+
+              if [ "$attempt" -lt 3 ]; then
+                wait_seconds=$((attempt * 10))
+                echo "Push falhou na tentativa ${attempt}; nova tentativa em ${wait_seconds}s."
+                sleep "$wait_seconds"
+              fi
+            done
+
+            echo "::error::Não foi possível publicar após três tentativas."
+            exit 1
           fi
+
+      - name: Preservar climatologia se a publicação falhou
+        if: steps.publish.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: era5-land-matosinhos-${{ github.run_id }}
+          path: |
+            data/era5_matosinhos_daily_temperature_1991_2020.csv
+            data/era5_matosinhos_temperature_percentiles.csv
+            data/era5_matosinhos_temperature_percentile_alerts.csv
+            data/era5_matosinhos_temperature_percentile_alert_latest.csv
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Assinalar falha de publicação
+        if: steps.publish.outcome == 'failure'
+        run: |
+          echo "::error::A climatologia foi preservada como artifact, mas não foi publicada em main."
+          exit 1

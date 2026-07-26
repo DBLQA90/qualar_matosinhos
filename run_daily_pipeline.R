@@ -233,9 +233,15 @@ if (mode %in% c("all", "report")) {
 append_status(rows, cycle_id)
 
 errors <- rows[rows$status != "ok", , drop = FALSE]
+report_errors <- errors[errors$phase == "report", , drop = FALSE]
+if (nrow(report_errors) > 0) {
+  message("Report generation failed; returning a non-zero exit code so the workflow can retry.")
+  quit(save = "no", status = 1L)
+}
+
 if (nrow(errors) > 0) {
   message(sprintf(
-    "Pipeline finished with %d recorded error(s), but did not abort.",
+    "Pipeline finished with %d recorded source error(s), but did not abort.",
     nrow(errors)
   ))
 } else {

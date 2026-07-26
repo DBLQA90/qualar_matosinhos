@@ -2,26 +2,31 @@ name: Pipeline diário Matosinhos
 
 on:
   schedule:
-    # GitHub cron is UTC. Each target is listed for summer/winter Lisbon time,
-    # with one retry slot per phase. The gate below converts the scheduled UTC
-    # slot to Europe/Lisbon and runs each phase only once per day.
-    - cron: '30 8 * * *'
-    - cron: '45 8 * * *'
-    - cron: '0 9 * * *'
-    - cron: '15 9 * * *'
+    # Primary data/report cycles in Lisbon time.
     - cron: '30 9 * * *'
-    - cron: '45 9 * * *'
+      timezone: 'Europe/Lisbon'
     - cron: '0 10 * * *'
-    - cron: '15 10 * * *'
-    - cron: '30 14 * * *'
-    - cron: '45 14 * * *'
-    - cron: '0 15 * * *'
-    - cron: '15 15 * * *'
+      timezone: 'Europe/Lisbon'
     - cron: '30 15 * * *'
-    - cron: '45 15 * * *'
+      timezone: 'Europe/Lisbon'
     - cron: '0 16 * * *'
-    - cron: '15 16 * * *'
+      timezone: 'Europe/Lisbon'
+    # Recovery slots complete only a missing report and refresh data if needed.
+    - cron: '20 10 * * *'
+      timezone: 'Europe/Lisbon'
+    - cron: '20 16 * * *'
+      timezone: 'Europe/Lisbon'
   workflow_dispatch:
+    inputs:
+      phase:
+        description: Fase a executar
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - data
+          - report
 
 concurrency:
   group: matosinhos-data-push
@@ -33,11 +38,12 @@ env:
 jobs:
   daily-pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -55,34 +61,45 @@ jobs:
           phase=""
           cycle=""
           scheduled_local_time=""
+          recovery="false"
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            phase="all"
+            phase="${{ inputs.phase }}"
             cycle="manual-${{ github.run_id }}"
             scheduled_local_time="$local_time"
           else
-            cron_minute="$(printf '%s' "$schedule" | awk '{print $1}')"
-            cron_hour="$(printf '%s' "$schedule" | awk '{print $2}')"
-            scheduled_local_time="$(
-              TZ=Europe/Lisbon date -d "$(date -u +%Y-%m-%d) ${cron_hour}:${cron_minute} UTC" +'%H:%M'
-            )"
-
-            case "$scheduled_local_time" in
-              09:30|09:45)
+            case "$schedule" in
+              "30 9 * * *")
                 phase="data"
                 cycle="morning"
+                scheduled_local_time="09:30"
                 ;;
-              10:00|10:15)
+              "0 10 * * *")
                 phase="report"
                 cycle="morning"
+                scheduled_local_time="10:00"
                 ;;
-              15:30|15:45)
+              "30 15 * * *")
                 phase="data"
                 cycle="afternoon"
+                scheduled_local_time="15:30"
                 ;;
-              16:00|16:15)
+              "0 16 * * *")
                 phase="report"
                 cycle="afternoon"
+                scheduled_local_time="16:00"
+                ;;
+              "20 10 * * *")
+                phase="report"
+                cycle="morning"
+                scheduled_local_time="10:20"
+                recovery="true"
+                ;;
+              "20 16 * * *")
+                phase="report"
+                cycle="afternoon"
+                scheduled_local_time="16:20"
+                recovery="true"
                 ;;
             esac
           fi
@@ -111,7 +128,8 @@ jobs:
           echo "marker_id=${marker_id}" >> "$GITHUB_OUTPUT"
           echo "local_date=${local_date}" >> "$GITHUB_OUTPUT"
           echo "scheduled_local_time=${scheduled_local_time}" >> "$GITHUB_OUTPUT"
-          echo "A executar fase ${phase} do ciclo ${cycle_id}; arranque ${local_time} Europe/Lisbon; scheduled_local=${scheduled_local_time}; schedule='${schedule}'."
+          echo "recovery=${recovery}" >> "$GITHUB_OUTPUT"
+          echo "A executar fase ${phase} do ciclo ${cycle_id}; arranque ${local_time} Europe/Lisbon; horário=${scheduled_local_time}; recuperação=${recovery}; schedule='${schedule}'."
 
       - uses: r-lib/actions/setup-r@v2
         if: steps.gate.outputs.should_run == 'true'
@@ -132,6 +150,12 @@ jobs:
           data_marker="${{ steps.gate.outputs.cycle_id }}-data"
           phase="${{ steps.gate.outputs.phase }}"
 
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] &&
+             [ "$phase" = "report" ]; then
+            echo "Execução manual report: a usar os dados já disponíveis."
+            exit 0
+          fi
+
           if [ "$phase" = "report" ] &&
              [ -f "$marker_path" ] &&
              grep -q "^${data_marker}," "$marker_path"; then
@@ -146,6 +170,26 @@ jobs:
       - name: Gerar relatório diário
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
         run: Rscript run_daily_pipeline.R "${{ steps.gate.outputs.cycle_id }}" report
+
+      - name: Validar relatório diário
+        if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')
+        shell: bash
+        run: |
+          report_path="daily/${{ steps.gate.outputs.local_date }}.md"
+          expected_title="# PNPRSS Matosinhos | ${{ steps.gate.outputs.local_date }}"
+
+          if [ ! -s "$report_path" ]; then
+            echo "::error::Relatório ausente ou vazio: ${report_path}"
+            exit 1
+          fi
+
+          actual_title="$(head -n 1 "$report_path")"
+          if [ "$actual_title" != "$expected_title" ]; then
+            echo "::error::Título inesperado em ${report_path}: ${actual_title}"
+            exit 1
+          fi
+
+          echo "Relatório validado: ${report_path}"
 
       - name: Marcar fase concluída
         if: steps.gate.outputs.should_run == 'true'
@@ -168,7 +212,9 @@ jobs:
           if [ "$phase" = "data" ]; then
             add_marker "${{ steps.gate.outputs.cycle_id }}-data"
           elif [ "$phase" = "report" ]; then
-            add_marker "${{ steps.gate.outputs.cycle_id }}-data"
+            if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+              add_marker "${{ steps.gate.outputs.cycle_id }}-data"
+            fi
             add_marker "${{ steps.gate.outputs.cycle_id }}-report"
           elif [ "$phase" = "all" ]; then
             add_marker "${{ steps.gate.outputs.cycle_id }}-data"
@@ -176,7 +222,9 @@ jobs:
           fi
 
       - name: Commit das alterações se mudaram
+        id: publish
         if: steps.gate.outputs.should_run == 'true'
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -185,5 +233,36 @@ jobs:
             echo "Sem alterações nos dados, relatório ou marcadores, nada a fazer."
           else
             git commit -m "Run Matosinhos ${{ steps.gate.outputs.phase }} pipeline $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            git push origin HEAD:main
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+
+              if [ "$attempt" -lt 3 ]; then
+                wait_seconds=$((attempt * 10))
+                echo "Push falhou na tentativa ${attempt}; nova tentativa em ${wait_seconds}s."
+                sleep "$wait_seconds"
+              fi
+            done
+
+            echo "::error::Não foi possível publicar após três tentativas."
+            exit 1
           fi
+
+      - name: Preservar outputs se a publicação falhou
+        if: steps.publish.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: matosinhos-${{ steps.gate.outputs.cycle_id }}-${{ steps.gate.outputs.phase }}
+          path: |
+            data/
+            daily/
+            qualar_matosinhos.csv
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Assinalar falha de publicação
+        if: steps.publish.outcome == 'failure'
+        run: |
+          echo "::error::Os outputs foram preservados como artifact, mas não foram publicados em main."
+          exit 1
