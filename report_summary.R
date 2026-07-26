@@ -354,10 +354,13 @@ summary_horizon_from_rows <- function(
   values <- if (!is.null(value_col) && value_col %in% names(rows)) {
     suppressWarnings(as.numeric(rows[[value_col]]))
   } else {
-    orders
+    rep(NA_real_, length(orders))
   }
   report_date_value <- as.Date(report_date)
-  keep <- !is.na(dates) & !is.na(orders) & dates >= report_date_value
+  keep <- !is.na(dates) &
+    !is.na(orders) &
+    orders >= 0 &
+    dates >= report_date_value
   if (!any(keep)) {
     return("")
   }
@@ -365,63 +368,176 @@ summary_horizon_from_rows <- function(
   dates <- dates[keep]
   orders <- orders[keep]
   values <- values[keep]
-  values[is.na(values)] <- -Inf
-  active <- orders > 0
+
+  daily_dates <- sort(unique(dates))
+  daily <- do.call(rbind, lapply(daily_dates, function(date_value) {
+    day_rows <- dates == date_value
+    day_order <- max(orders[day_rows], na.rm = TRUE)
+    day_values <- values[day_rows & orders == day_order]
+    day_values <- day_values[is.finite(day_values)]
+    data.frame(
+      date = date_value,
+      order = day_order,
+      value = if (length(day_values) > 0) max(day_values) else NA_real_
+    )
+  }))
+  daily$date <- as.Date(daily$date, origin = "1970-01-01")
+  daily <- daily[order(daily$date), , drop = FALSE]
+
+  active <- daily$order > 0
   if (!any(active)) {
     return("")
   }
 
-  if (!any(dates > report_date_value)) {
+  if (!any(daily$date > report_date_value)) {
     return(paste0(domain, ": hoje - sem dados para os próximos dias"))
   }
 
-  today_order <- if (any(dates == report_date_value)) {
-    max(orders[dates == report_date_value], na.rm = TRUE)
-  } else {
-    -1
+  max_order <- max(daily$order[active], na.rm = TRUE)
+  active_dates <- daily$date[active]
+  first_active_date <- min(active_dates)
+  last_active_date <- max(active_dates)
+  supported_span_dates <- seq(first_active_date, max(daily$date), by = "day")
+  supported_span <- daily[
+    daily$date %in% supported_span_dates,
+    ,
+    drop = FALSE
+  ]
+  continuous_supported_span <- nrow(supported_span) ==
+    length(supported_span_dates) &&
+    all(supported_span$date == supported_span_dates)
+
+  if (continuous_supported_span &&
+      all(supported_span$order == max_order)) {
+    if (first_active_date == report_date_value) {
+      return(paste0(
+        domain,
+        ": previsto até ",
+        summary_short_date(last_active_date)
+      ))
+    }
+    if (first_active_date == last_active_date) {
+      return(paste0(
+        domain,
+        ": previsto em ",
+        summary_short_date(first_active_date)
+      ))
+    }
+    return(paste0(
+      domain,
+      ": previsto de ",
+      summary_short_date(first_active_date),
+      " a ",
+      summary_short_date(last_active_date)
+    ))
   }
-  max_order <- max(orders[active], na.rm = TRUE)
-  max_value <- max(values[active & orders == max_order], na.rm = TRUE)
-  active_dates <- dates[active]
 
-  if (all(orders[active] == max_order)) {
-    return(paste0(domain, ": previsto até ", summary_short_date(max(active_dates))))
-  }
-
-  peak_date <- min(dates[orders == max_order & values == max_value], na.rm = TRUE)
-
-  if (max_order > today_order) {
-    improving_dates <- dates[
-      dates > peak_date &
-        (orders < max_order | (orders == max_order & values < max_value))
+  peak_candidates <- which(active & daily$order == max_order)
+  finite_peak_values <- is.finite(daily$value[peak_candidates])
+  if (any(finite_peak_values)) {
+    max_value <- max(daily$value[peak_candidates][finite_peak_values])
+    peak_candidates <- peak_candidates[
+      is.finite(daily$value[peak_candidates]) &
+        daily$value[peak_candidates] == max_value
     ]
-    if (length(improving_dates) > 0) {
-      return(paste0(
-        domain,
-        ": pico em ",
-        summary_short_date(peak_date),
-        ", tendência a melhorar a partir de ",
-        summary_short_date(min(improving_dates))
-      ))
-    }
+  }
+  peak_dates <- daily$date[peak_candidates]
+  last_peak_index <- max(peak_candidates)
 
-    return(paste0(domain, ": pico em ", summary_short_date(peak_date)))
+  peak_text <- if (length(peak_dates) == 1) {
+    if (peak_dates[[1]] == report_date_value) {
+      "pico hoje"
+    } else {
+      paste0("pico em ", summary_short_date(peak_dates[[1]]))
+    }
+  } else if (all(diff(as.integer(peak_dates)) == 1)) {
+    paste0(
+      "pico entre ",
+      if (min(peak_dates) == report_date_value) {
+        "hoje"
+      } else {
+        summary_short_date(min(peak_dates))
+      },
+      " e ",
+      summary_short_date(max(peak_dates))
+    )
+  } else {
+    peak_labels <- vapply(peak_dates, summary_short_date, character(1))
+    paste0(
+      "picos em ",
+      if (length(peak_labels) == 2) {
+        paste(peak_labels, collapse = " e ")
+      } else {
+        paste0(
+          paste(peak_labels[-length(peak_labels)], collapse = ", "),
+          " e ",
+          peak_labels[[length(peak_labels)]]
+        )
+      }
+    )
   }
 
-  if (today_order == max_order) {
-    improving_dates <- dates[dates > report_date_value & orders < today_order]
-    if (length(improving_dates) > 0) {
-      return(paste0(
-        domain,
-        ": pico hoje, tendência a melhorar a partir de ",
-        summary_short_date(min(improving_dates))
-      ))
+  compare_risk <- function(current_index, previous_index) {
+    order_difference <- daily$order[[current_index]] - daily$order[[previous_index]]
+    if (order_difference != 0) {
+      return(sign(order_difference))
     }
 
-    return(paste0(domain, ": previsto até ", summary_short_date(max(active_dates))))
+    current_value <- daily$value[[current_index]]
+    previous_value <- daily$value[[previous_index]]
+    if (is.finite(current_value) && is.finite(previous_value)) {
+      return(sign(current_value - previous_value))
+    }
+
+    0
   }
 
-  paste0(domain, ": previsto até ", summary_short_date(max(active_dates)))
+  improvement_date <- as.Date(NA)
+  after_peak <- seq.int(last_peak_index + 1L, nrow(daily))
+  if (length(after_peak) > 0 &&
+      after_peak[[1]] <= nrow(daily)) {
+    horizon_dates <- seq(
+      daily$date[[last_peak_index]],
+      max(daily$date),
+      by = "day"
+    )
+    continuous_after_peak <- length(horizon_dates) ==
+      (nrow(daily) - last_peak_index + 1L) &&
+      all(daily$date[last_peak_index:nrow(daily)] == horizon_dates)
+
+    if (continuous_after_peak) {
+      comparison_indices <- last_peak_index:nrow(daily)
+      comparisons <- vapply(
+        seq.int(2L, length(comparison_indices)),
+        function(index) {
+          compare_risk(
+            comparison_indices[[index]],
+            comparison_indices[[index - 1L]]
+          )
+        },
+        numeric(1)
+      )
+      first_improvement <- which(comparisons < 0)
+      if (length(first_improvement) > 0 &&
+          all(comparisons <= 0)) {
+        improvement_date <- daily$date[
+          comparison_indices[[first_improvement[[1]] + 1L]]
+        ]
+      }
+    }
+  }
+
+  if (!is.na(improvement_date)) {
+    return(paste0(
+      domain,
+      ": ",
+      peak_text,
+      ", tendência a melhorar a partir de ",
+      summary_short_date(improvement_date)
+    ))
+  }
+
+  paste0(domain, ": ", peak_text)
 }
 
 summary_report_title <- function(report_date) {
