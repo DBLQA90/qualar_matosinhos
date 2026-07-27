@@ -323,10 +323,12 @@ O catálogo distingue:
 ### QA-PIPELINE - Qualidade e frescura das fontes
 
 - **Estado:** operacional de qualidade, não é risco de saúde.
-- **Variáveis:** fonte, fase, estado, timestamps, código de saída, mensagem e cobertura por data/horizonte.
-- **Ficheiros:** `data/pipeline_source_status.csv` e `data/pipeline_source_status_latest.csv`.
+- **Variáveis:** fonte, fase, estado, timestamps, código de saída, mensagem, correspondência ao ciclo da manhã/tarde e cobertura horária das estações.
+- **Ficheiros:** `data/pipeline_source_status.csv`, `data/pipeline_source_status_latest.csv` e `data/daily_report_signal_snapshots.csv`.
 - **Regra:** uma fonte com erro não bloqueia as outras; falha do relatório devolve erro para permitir recuperação.
-- **Uso:** secção `Estado das fontes` e prevenção de falsos Verdes.
+- **Frescura:** no boletim da manhã, a recolha deve corresponder ao ciclo iniciado às 09:30; no da tarde, ao ciclo iniciado às 15:30. Uma execução anterior fica `Desatualizada`.
+- **Comparação entre edições:** guarda os sinais estruturados de cada boletim e compara apenas edições da mesma data, evitando tratar a passagem de um dia para o seguinte como mudança equivalente.
+- **Uso:** linha compacta junto ao título, secção `Qualidade e atualização das fontes`, bloco `Alterações desde o boletim anterior` e prevenção de falsos Verdes.
 
 ## Indicadores dos planos pendentes de dados internos
 

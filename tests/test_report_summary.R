@@ -187,6 +187,16 @@ expect_true(
   "The forecast horizon must precede today's actions."
 )
 expect_true(
+  match(grep("^> \\*\\*Estado dos dados:", quick, value = TRUE), quick) <
+    match("## Alertas e pré-alertas ativos", quick),
+  "The compact data-quality status must appear before the alert section."
+)
+expect_true(
+  match("### Alterações desde o boletim anterior", quick) <
+    match("### Sinais aplicáveis hoje", quick),
+  "Changes since the previous edition must precede the current signals."
+)
+expect_true(
   "### Comunicação geral" %in% quick &&
     any(grepl("^- ", quick)),
   "Today's actions must be grouped into bullet lists."

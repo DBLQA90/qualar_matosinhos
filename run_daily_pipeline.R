@@ -250,7 +250,7 @@ if (mode %in% c("all", "report")) {
       "report",
       "Relatório diário",
       "Rscript",
-      "generate_daily_report.R"
+      c("generate_daily_report.R", local_today(), cycle_id)
     )
   )
 }

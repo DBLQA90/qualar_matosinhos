@@ -179,6 +179,7 @@ jobs:
           Rscript tests/test_bathing_water.R
           Rscript tests/test_temperature_forecast_comparison.R
           Rscript tests/test_temperature_source_comparison.R
+          Rscript tests/test_report_monitoring.R
 
       - name: Validar relatório diário
         if: steps.gate.outputs.should_run == 'true' && (steps.gate.outputs.phase == 'report' || steps.gate.outputs.phase == 'all')

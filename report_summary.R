@@ -1,8 +1,10 @@
 SUMMARY_MARKER <- "sintese"
 SOURCE_STATUS_MARKER <- "source-status"
+SOURCE_STATUS_SUMMARY_MARKER <- "source-status-summary"
 INDEX_MARKER <- "indice"
 SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
 source("temperature_source_comparison.R", encoding = "UTF-8")
+source("report_monitoring.R", encoding = "UTF-8")
 
 REPORT_SOURCE_SECTIONS <- list(
   "Síntese de risco" = c(
@@ -697,8 +699,17 @@ replace_report_index <- function(content) {
     paste0("- [", entries$label, "](#", entries$anchor_id, ")"),
     paste0("<!-- ", INDEX_MARKER, ":end -->")
   )
+  status_end <- which(
+    anchored == paste0("<!-- ", SOURCE_STATUS_SUMMARY_MARKER, ":end -->")
+  )
   title <- which(grepl("^# ", anchored))
-  insert_after <- if (length(title) > 0) title[[1]] else 0L
+  insert_after <- if (length(status_end) > 0) {
+    status_end[[1]]
+  } else if (length(title) > 0) {
+    title[[1]]
+  } else {
+    0L
+  }
   before <- if (insert_after > 0) anchored[seq_len(insert_after)] else
     character()
   after <- if (insert_after < length(anchored)) {
@@ -920,42 +931,29 @@ summary_source_freshness_lines <- function(report_date) {
   lines[nzchar(lines)]
 }
 
-summary_source_status_section <- function(report_date) {
-  error_lines <- summary_source_error_lines(report_date)
+summary_source_status_section <- function(report_date, quality = NULL) {
+  if (is.null(quality)) {
+    quality <- rsm_source_quality(report_date)
+  }
   freshness_lines <- summary_source_freshness_lines(report_date)
-
-  if (length(error_lines) == 0 && length(freshness_lines) == 0) {
-    return(character())
-  }
-
-  lines <- character()
-  if (length(error_lines) > 0) {
-    lines <- c(lines, "**Erros de extração:**", "", error_lines)
-  }
-  if (length(freshness_lines) > 0) {
-    if (length(lines) > 0) {
-      lines <- c(lines, "")
-    }
-    lines <- c(
-      lines,
-      "**Cobertura/frescura dos dados:**",
-      "",
-      freshness_lines
-    )
-  }
-
   c(
     paste0("<!-- ", SOURCE_STATUS_MARKER, ":start -->"),
-    "## Estado das fontes",
+    "## Qualidade e atualização das fontes",
     "",
-    "O boletim foi gerado com os dados disponíveis. As notas abaixo indicam fontes que falharam, ficaram incompletas ou não têm cobertura suficiente para a data/horizonte do boletim.",
+    "Os símbolos desta secção representam disponibilidade dos dados, não nível de risco. Uma falha não interrompe o boletim; o indicador afetado fica identificado como indisponível ou incompleto.",
     "",
-    lines,
+    rsm_source_table_lines(quality),
+    if (length(freshness_lines) > 0) c(
+      "",
+      "**Limitações de cobertura detetadas:**",
+      "",
+      freshness_lines
+    ) else NULL,
     paste0("<!-- ", SOURCE_STATUS_MARKER, ":end -->")
   )
 }
 
-replace_source_status_section <- function(content, report_date) {
+replace_source_status_section <- function(content, report_date, quality = NULL) {
   start_marker <- paste0("<!-- ", SOURCE_STATUS_MARKER, ":start -->")
   end_marker <- paste0("<!-- ", SOURCE_STATUS_MARKER, ":end -->")
   start <- which(content == start_marker)
@@ -967,10 +965,7 @@ replace_source_status_section <- function(content, report_date) {
     content <- c(before, after)
   }
 
-  section <- summary_source_status_section(report_date)
-  if (length(section) == 0) {
-    return(summary_compact_blank_lines(content))
-  }
+  section <- summary_source_status_section(report_date, quality)
 
   source_header <- grep(SOURCES_HEADER_PATTERN, content)
   if (length(source_header) > 0) {
@@ -2785,7 +2780,7 @@ summary_table_lines <- function(signals) {
 }
 
 summary_data_limitation_lines <- function(report_date) {
-  lines <- c(
+  c(
     "- A síntese e os códigos de cor apoiam a decisão, mas não substituem avisos oficiais nem a ativação formal do plano.",
     "- A comparação IPMA/Open-Meteo aplica-se ao DSP, noites tropicais e onda de calor. O UTCI permanece exclusivamente IPMA, porque temperatura aparente e UTCI não são indicadores equivalentes.",
     paste(
@@ -2793,17 +2788,36 @@ summary_data_limitation_lines <- function(report_date) {
       "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
     )
   )
-  source_errors <- summary_source_error_lines(report_date)
-  freshness <- summary_source_freshness_lines(report_date)
+}
 
-  if (length(source_errors) > 0) {
-    lines <- c(lines, source_errors)
+summary_model_source_quality <- function(model, report_date) {
+  if (!is.null(model$source_quality)) {
+    return(model$source_quality)
   }
-  if (length(freshness) > 0) {
-    lines <- c(lines, freshness)
-  }
+  rsm_source_quality(report_date)
+}
 
-  lines
+summary_source_status_summary_lines <- function(model, report_date) {
+  quality <- summary_model_source_quality(model, report_date)
+  c(
+    paste0("<!-- ", SOURCE_STATUS_SUMMARY_MARKER, ":start -->"),
+    quality$banner,
+    paste0("<!-- ", SOURCE_STATUS_SUMMARY_MARKER, ":end -->")
+  )
+}
+
+summary_change_section_lines <- function(model) {
+  heading <- if (!is.null(model$changes_heading)) {
+    model$changes_heading
+  } else {
+    "### Alterações desde o boletim anterior"
+  }
+  lines <- if (!is.null(model$change_lines)) {
+    model$change_lines
+  } else {
+    "- Primeiro boletim do dia; sem edição anterior para comparação."
+  }
+  c(heading, "", lines)
 }
 
 build_operational_summary_section <- function(report_date, model = NULL) {
@@ -2814,7 +2828,11 @@ build_operational_summary_section <- function(report_date, model = NULL) {
 
   c(
     paste0("<!-- ", SUMMARY_MARKER, ":start -->"),
+    summary_source_status_summary_lines(model, report_date),
+    "",
     "## Alertas e pré-alertas ativos",
+    "",
+    summary_change_section_lines(model),
     "",
     "### Sinais aplicáveis hoje",
     "",
@@ -3275,7 +3293,11 @@ build_quick_daily_report <- function(report_date, model = NULL) {
   summary_compact_blank_lines(c(
     summary_report_title(report_date),
     "",
+    summary_source_status_summary_lines(model, report_date),
+    "",
     "## Alertas e pré-alertas ativos",
+    "",
+    summary_change_section_lines(model),
     "",
     "### Sinais aplicáveis hoje",
     "",
@@ -3337,7 +3359,11 @@ finalize_daily_report <- function(content, report_date, model = NULL) {
   content <- replace_operational_summary(content, report_date, model)
   content <- replace_parallel_temperature_sections(content, report_date)
   content <- ensure_detail_heading(content)
-  content <- replace_source_status_section(content, report_date)
+  content <- replace_source_status_section(
+    content,
+    report_date,
+    summary_model_source_quality(model, report_date)
+  )
   content <- replace_report_sources(content)
   content <- gsub(
     "evitar rigorosamente contacto",
