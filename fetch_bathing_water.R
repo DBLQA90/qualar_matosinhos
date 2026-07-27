@@ -448,7 +448,7 @@ bw_recommendations <- function(rows) {
       reason_text,
       "). Não tomar banho nem entrar na água e respeitar a sinalização e as indicações das autoridades."
     ),
-    "Grupos vulneráveis: crianças, pessoas idosas, grávidas, pessoas imunocomprometidas ou com feridas/doença de pele devem evitar rigorosamente contacto com a água afetada. Se ocorreu exposição e surgirem sintomas gastrointestinais, cutâneos, oculares ou febre, contactar um profissional de saúde/SNS 24.",
+    "Grupos vulneráveis: crianças, pessoas idosas, grávidas, pessoas imunocomprometidas ou com feridas/doença de pele devem evitar contacto com a água afetada. Se ocorreu exposição e surgirem sintomas gastrointestinais, cutâneos, oculares ou febre, contactar um profissional de saúde/SNS 24.",
     "Estabelecimentos/equipamentos: cancelar atividades aquáticas nas praias afetadas, informar utentes, famílias e equipas, manter alternativa sem contacto com a água e só retomar após levantamento oficial da restrição.",
     sep = "\n\n"
   )

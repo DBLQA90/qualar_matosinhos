@@ -1,9 +1,11 @@
 SUMMARY_MARKER <- "sintese"
 SOURCE_STATUS_MARKER <- "source-status"
+INDEX_MARKER <- "indice"
 SOURCES_HEADER_PATTERN <- "^## Fontes (usadas para recomendações|e metodologia)"
+source("temperature_source_comparison.R", encoding = "UTF-8")
 
 REPORT_SOURCE_SECTIONS <- list(
-  "Nível operacional" = c(
+  "Síntese de risco" = c(
     paste(
       "- Metodologia local: o nível de hoje resulta dos sinais aplicáveis à data;",
       "a previsão acrescenta preparação (Vermelho futuro -> Laranja hoje;",
@@ -22,12 +24,14 @@ REPORT_SOURCE_SECTIONS <- list(
   ),
   "Temperatura DSP" = c(
     "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+    "- Open-Meteo, Weather Forecast API e modelos disponíveis: https://open-meteo.com/en/docs",
     "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
     "- DGS, temperaturas elevadas - recomendações: https://www.dgs.pt/em-destaque/temperaturas-elevadas-recomendacoes-da-dgs.aspx",
     "- SNS/DGS/INSA, recomendações contra o calor: https://www.sns.min-saude.pt/comunicado-conjunto-aumento-da-temperatura-recomendacoes-contra-o-calor/"
   ),
   "Noites tropicais" = c(
     "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
+    "- Open-Meteo, Weather Forecast API: https://open-meteo.com/en/docs",
     "- IPMA, definição climatológica usada nos boletins: noite tropical corresponde a temperatura mínima do ar igual ou superior a 20 ºC.",
     "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
     "- DGS, recomendações à população em períodos de calor: https://www.dgs.pt/em-destaque/recomendacoes-a-populacao-calor.aspx"
@@ -36,6 +40,7 @@ REPORT_SOURCE_SECTIONS <- list(
     "- IPMA, definição de Onda de Calor: https://www.ipma.pt/pt/enciclopedia/clima/index.html?page=onda.calor.xml",
     "- IPMA, monitorização de Ondas de Calor: https://www.ipma.pt/pt/oclima/ondascalor/",
     "- IPMA, Normal Climatológica 1991-2020 - Porto/Pedras Rubras: https://www.ipma.pt/opencms/bin/file.data/climate-normal/cn_91-20_PORTO_PEDRAS_RUBRAS.pdf",
+    "- Open-Meteo, Weather Forecast API: https://open-meteo.com/en/docs",
     "- DGS, recomendações para ondas de calor: https://www.dgs.pt/saude-ambiental-calor/recomendacoes.aspx",
     "- DGS, calor - perguntas e respostas: https://www.dgs.pt/paginas-de-sistema/saude-de-a-a-z/calor/perguntas-e-respostas.aspx"
   ),
@@ -594,6 +599,117 @@ summary_compact_blank_lines <- function(content) {
   content[keep]
 }
 
+summary_index_slug <- function(value) {
+  value <- iconv(value, from = "UTF-8", to = "ASCII//TRANSLIT")
+  value[is.na(value)] <- "secao"
+  value <- tolower(value)
+  value <- gsub("[^a-z0-9]+", "-", value)
+  value <- gsub("(^-+|-+$)", "", value)
+  paste0("sec-", value)
+}
+
+summary_strip_report_index <- function(content) {
+  start_marker <- paste0("<!-- ", INDEX_MARKER, ":start -->")
+  end_marker <- paste0("<!-- ", INDEX_MARKER, ":end -->")
+  start <- which(content == start_marker)
+  end <- which(content == end_marker)
+  if (length(start) > 0 && length(end) > 0 && end[[1]] >= start[[1]]) {
+    before <- if (start[[1]] > 1) content[seq_len(start[[1]] - 1)] else
+      character()
+    after <- if (end[[1]] < length(content)) {
+      content[(end[[1]] + 1):length(content)]
+    } else {
+      character()
+    }
+    content <- c(before, after)
+  }
+  content[!grepl("^<a id=\"sec-[^\"]+\"></a>$", content)]
+}
+
+summary_report_index_entries <- function(content) {
+  h2 <- grep("^## ", content)
+  detail <- which(content == "## Indicadores detalhados")
+  sources <- grep(SOURCES_HEADER_PATTERN, content)
+  h3 <- grep("^### ", content)
+
+  detail_h3 <- if (length(detail) > 0) {
+    end <- if (length(sources) > 0) sources[[1]] else length(content) + 1L
+    h3[h3 > detail[[1]] & h3 < end]
+  } else {
+    integer()
+  }
+  indices <- sort(unique(c(h2, detail_h3)))
+  indices <- indices[content[indices] != "## Índice"]
+  if (length(indices) == 0) {
+    return(data.frame(stringsAsFactors = FALSE))
+  }
+
+  labels <- sub("^#{2,3} ", "", content[indices])
+  base_ids <- vapply(labels, summary_index_slug, character(1))
+  ids <- base_ids
+  seen <- integer()
+  names(seen) <- character()
+  for (index in seq_along(ids)) {
+    base <- base_ids[[index]]
+    count <- if (base %in% names(seen)) seen[[base]] + 1L else 1L
+    seen[[base]] <- count
+    if (count > 1L) {
+      ids[[index]] <- paste0(base, "-", count)
+    }
+  }
+
+  data.frame(
+    line_index = indices,
+    label = labels,
+    anchor_id = ids,
+    stringsAsFactors = FALSE
+  )
+}
+
+replace_report_index <- function(content) {
+  content <- summary_strip_report_index(content)
+  entries <- summary_report_index_entries(content)
+  if (nrow(entries) == 0) {
+    return(summary_compact_blank_lines(content))
+  }
+
+  anchored <- character()
+  entry_lookup <- setNames(
+    seq_len(nrow(entries)),
+    as.character(entries$line_index)
+  )
+  for (index in seq_along(content)) {
+    key <- as.character(index)
+    if (key %in% names(entry_lookup)) {
+      entry <- entries[entry_lookup[[key]], , drop = FALSE]
+      anchored <- c(
+        anchored,
+        paste0("<a id=\"", entry$anchor_id, "\"></a>")
+      )
+    }
+    anchored <- c(anchored, content[[index]])
+  }
+
+  index_section <- c(
+    paste0("<!-- ", INDEX_MARKER, ":start -->"),
+    "## Índice",
+    "",
+    paste0("- [", entries$label, "](#", entries$anchor_id, ")"),
+    paste0("<!-- ", INDEX_MARKER, ":end -->")
+  )
+  title <- which(grepl("^# ", anchored))
+  insert_after <- if (length(title) > 0) title[[1]] else 0L
+  before <- if (insert_after > 0) anchored[seq_len(insert_after)] else
+    character()
+  after <- if (insert_after < length(anchored)) {
+    anchored[(insert_after + 1):length(anchored)]
+  } else {
+    character()
+  }
+
+  summary_compact_blank_lines(c(before, "", index_section, "", after))
+}
+
 build_report_sources_section <- function() {
   section <- c(
     "## Fontes e metodologia",
@@ -718,6 +834,14 @@ summary_source_freshness_lines <- function(report_date) {
     summary_source_coverage_line(
       "IPMA meteorologia",
       "data/ipma_matosinhos_forecast_latest.csv",
+      "forecast_date",
+      report_date,
+      require_today = TRUE,
+      require_future = TRUE
+    ),
+    summary_source_coverage_line(
+      "Open-Meteo temperatura",
+      "data/openmeteo_matosinhos_forecast_latest.csv",
       "forecast_date",
       report_date,
       require_today = TRUE,
@@ -929,94 +1053,117 @@ summary_qualar_signal <- function(report_date) {
 }
 
 summary_temperature_signal <- function(report_date) {
-  rows <- summary_read_csv("data/ipma_matosinhos_temperature_alert_latest.csv")
+  rows <- tsc_dsp_comparison(report_date)
   if (nrow(rows) == 0) {
     return(summary_signal("Temperatura DSP"))
   }
 
-  today <- summary_date_rows(rows, "target_date", report_date)
-  future <- summary_after_date_rows(rows, "target_date", report_date)
-  future_highest <- summary_highest_row(future, "overall_temperature_alert_level", "target_date")
+  status <- vapply(seq_len(nrow(rows)), function(index) {
+    row <- rows[index, , drop = FALSE]
+    paste0(
+      row$source_label,
+      " ",
+      summary_risk_icon(row$overall_alert_level),
+      " ",
+      row$overall_alert
+    )
+  }, character(1))
+  driver <- vapply(seq_len(nrow(rows)), function(index) {
+    row <- rows[index, , drop = FALSE]
+    paste0(
+      row$source_label,
+      ": máx. ",
+      row$tmax_alert,
+      "; mín. ",
+      row$tmin_alert
+    )
+  }, character(1))
+  levels <- suppressWarnings(as.numeric(rows$overall_alert_level))
+  today_level <- if (all(is.na(levels))) -1 else max(levels, na.rm = TRUE)
 
   summary_signal(
     "Temperatura DSP",
-    if (nrow(today) > 0) summary_clean(today$overall_temperature_alert) else "Sem dados",
-    if (nrow(future_highest) > 0) {
-      future_alert <- summary_clean(future_highest$overall_temperature_alert)
-      if (future_alert == "Sem dados") {
-        "A recalcular com novas observações"
-      } else {
-        paste0(
-          summary_clean(future_highest$target_date),
-          ": ",
-          future_alert
-        )
-      }
-    } else {
-      "Sem dados"
-    },
-    if (nrow(today) > 0) {
-      paste0(
-        "máx. ",
-        summary_clean(today$tmax_alert),
-        "; mín. ",
-        summary_clean(today$tmin_alert)
-      )
-    } else {
-      "sem dados"
-    },
-    summary_to_num(today$overall_temperature_alert_level),
-    summary_to_num(future_highest$overall_temperature_alert_level),
-    summary_horizon_from_rows(
-      "Temperatura DSP",
-      rows,
-      "target_date",
-      "overall_temperature_alert_level",
-      report_date
-    )
+    paste(status, collapse = "; "),
+    "A recalcular com novas observações",
+    paste(driver, collapse = "; "),
+    today_level,
+    -1,
+    ""
   )
 }
 
 summary_heat_wave_signal <- function(report_date) {
-  rows <- summary_read_csv("data/ipma_matosinhos_heat_waves_latest.csv")
+  rows <- tsc_heat_waves(report_date)
   if (nrow(rows) == 0) {
     return(summary_signal("Onda de calor"))
   }
 
-  today <- summary_date_rows(rows, "target_date", report_date)
-  future <- summary_after_date_rows(rows, "target_date", report_date)
-  future_highest <- summary_highest_row(future, "heat_wave_level", "target_date")
+  today <- rows[as.Date(rows$target_date) == as.Date(report_date), , drop = FALSE]
+  future <- rows[as.Date(rows$target_date) > as.Date(report_date), , drop = FALSE]
+  source_status <- function(selected, include_date = FALSE) {
+    sources <- unique(selected$source_id)
+    if (length(sources) == 0) {
+      return("Sem dados")
+    }
+    highest_rows <- lapply(sources, function(source_id) {
+      source_rows <- selected[selected$source_id == source_id, , drop = FALSE]
+      order_values <- suppressWarnings(as.numeric(source_rows$heat_wave_level))
+      source_rows[which.max(order_values), , drop = FALSE]
+    })
+    highest_levels <- vapply(highest_rows, function(row) {
+      suppressWarnings(as.numeric(row$heat_wave_level[[1]]))
+    }, numeric(1))
+    if (include_date && any(highest_levels > 0, na.rm = TRUE)) {
+      highest_rows <- highest_rows[highest_levels > 0]
+    }
+    paste(vapply(highest_rows, function(highest) {
+      prefix <- if (include_date) {
+        paste0(summary_short_date(highest$target_date), ": ")
+      } else {
+        ""
+      }
+      paste0(
+        highest$source_label,
+        " ",
+        summary_risk_icon(highest$heat_wave_level),
+        " ",
+        prefix,
+        highest$status
+      )
+    }, character(1)), collapse = "; ")
+  }
+  today_levels <- suppressWarnings(as.numeric(today$heat_wave_level))
+  future_levels <- suppressWarnings(as.numeric(future$heat_wave_level))
+  today_level <- if (length(today_levels) == 0 || all(is.na(today_levels))) {
+    -1
+  } else {
+    max(today_levels, na.rm = TRUE)
+  }
+  future_level <- if (length(future_levels) == 0 || all(is.na(future_levels))) {
+    -1
+  } else {
+    max(future_levels, na.rm = TRUE)
+  }
 
   summary_signal(
     "Onda de calor",
-    if (nrow(today) > 0) summary_clean(today$heat_wave_status) else "Sem dados",
-    if (nrow(future_highest) > 0) {
-      paste0(
-        summary_clean(future_highest$target_date),
-        ": ",
-        summary_clean(future_highest$heat_wave_status)
-      )
-    } else {
-      "Sem dados"
-    },
-    if (nrow(future_highest) > 0) {
-      paste0(
-        "sequência máxima ",
-        summary_clean(future_highest$consecutive_exceedance_days, "0"),
-        " dia(s)"
-      )
-    } else {
-      "sem dados"
-    },
-    summary_to_num(today$heat_wave_level),
-    summary_to_num(future_highest$heat_wave_level),
-    summary_horizon_from_rows(
-      "Onda de calor",
-      rows,
-      "target_date",
-      "heat_wave_level",
-      report_date
-    )
+    source_status(today),
+    source_status(future, include_date = TRUE),
+    "critério comparado com a mesma normal IPMA 1991-2020",
+    today_level,
+    future_level,
+    {
+      parts <- vapply(split(rows, rows$source_id), function(source_rows) {
+        summary_horizon_from_rows(
+          paste0("Onda de calor - ", source_rows$source_label[[1]]),
+          source_rows,
+          "target_date",
+          "heat_wave_level",
+          report_date
+        )
+      }, character(1))
+      paste(parts[nzchar(parts)], collapse = "; ")
+    }
   )
 }
 
@@ -1362,56 +1509,110 @@ summary_ipma_alert_signal <- function(report_date) {
 }
 
 summary_tropical_night_signal <- function(report_date) {
-  rows <- summary_read_csv("data/ipma_matosinhos_tropical_nights_latest.csv")
+  rows <- tsc_tropical_nights(report_date)
   if (nrow(rows) == 0) {
     return(summary_signal("Noites tropicais"))
   }
 
-  today <- summary_date_rows(rows, "target_date", report_date)
-  future <- summary_after_date_rows(rows, "target_date", report_date)
-  today_highest <- summary_highest_row(today, "signal_level_order", "target_date")
-  future_highest <- summary_highest_row(future, "signal_level_order", "target_date")
+  today <- rows[as.Date(rows$target_date) == as.Date(report_date), , drop = FALSE]
+  future <- rows[as.Date(rows$target_date) > as.Date(report_date), , drop = FALSE]
 
-  status_text <- function(row, include_date = FALSE) {
-    if (nrow(row) == 0) {
+  status_text <- function(selected, include_date = FALSE) {
+    sources <- unique(selected$source_id)
+    if (length(sources) == 0) {
       return("Sem dados")
     }
-    text <- summary_clean(row$status)
-    if (isTRUE(include_date)) {
-      return(paste0(summary_clean(row$target_date), ": ", text))
+    highest_rows <- lapply(sources, function(source_id) {
+      source_rows <- selected[selected$source_id == source_id, , drop = FALSE]
+      order_values <- suppressWarnings(as.numeric(source_rows$signal_level_order))
+      source_rows[which.max(order_values), , drop = FALSE]
+    })
+    highest_levels <- vapply(highest_rows, function(row) {
+      suppressWarnings(as.numeric(row$signal_level_order[[1]]))
+    }, numeric(1))
+    if (include_date && any(highest_levels > 0, na.rm = TRUE)) {
+      highest_rows <- highest_rows[highest_levels > 0]
     }
-    text
+    paste(vapply(highest_rows, function(highest) {
+      prefix <- if (include_date) {
+        paste0(summary_short_date(highest$target_date), ": ")
+      } else {
+        ""
+      }
+      paste0(
+        highest$source_label,
+        " ",
+        summary_risk_icon(highest$signal_level_order),
+        " ",
+        prefix,
+        highest$status
+      )
+    }, character(1)), collapse = "; ")
   }
 
-  driver_text <- function(row) {
-    if (nrow(row) == 0) {
+  driver_text <- function(selected) {
+    if (nrow(selected) == 0) {
       return("sem dados")
     }
-    paste0(
-      "Tmin ",
-      summary_clean(row$tmin_c),
-      " ºC; sequência ",
-      summary_clean(row$sequence_length, "0"),
-      " noite(s)"
-    )
+    highest <- lapply(unique(selected$source_id), function(source_id) {
+      source_rows <- selected[selected$source_id == source_id, , drop = FALSE]
+      source_rows[
+        which.max(tsc_num(source_rows$signal_level_order)),
+        ,
+        drop = FALSE
+      ]
+    })
+    highest_levels <- vapply(highest, function(row) {
+      suppressWarnings(as.numeric(row$signal_level_order[[1]]))
+    }, numeric(1))
+    if (any(highest_levels > 0, na.rm = TRUE)) {
+      highest <- highest[highest_levels > 0]
+    }
+    paste(vapply(highest, function(row) {
+      paste0(
+        row$source_label[[1]],
+        ": Tmin ",
+        row$value_c[[1]],
+        " ºC; sequência ",
+        row$sequence_length[[1]],
+        " noite(s)"
+      )
+    }, character(1)), collapse = "; ")
+  }
+  today_levels <- suppressWarnings(as.numeric(today$signal_level_order))
+  future_levels <- suppressWarnings(as.numeric(future$signal_level_order))
+  today_level <- if (length(today_levels) == 0 || all(is.na(today_levels))) {
+    -1
+  } else {
+    max(today_levels, na.rm = TRUE)
+  }
+  future_level <- if (length(future_levels) == 0 || all(is.na(future_levels))) {
+    -1
+  } else {
+    max(future_levels, na.rm = TRUE)
   }
 
   summary_signal(
     "Noites tropicais",
-    status_text(today_highest),
-    status_text(future_highest, include_date = TRUE),
-    driver_text(today_highest),
-    summary_to_num(today_highest$signal_level_order),
-    summary_to_num(future_highest$signal_level_order),
-    summary_horizon_from_rows(
-      "Noites tropicais",
-      rows,
-      "target_date",
-      "signal_level_order",
-      report_date,
-      value_col = "tmin_c"
-    ),
-    future_driver = driver_text(future_highest)
+    status_text(today),
+    status_text(future, include_date = TRUE),
+    driver_text(today),
+    today_level,
+    future_level,
+    {
+      parts <- vapply(split(rows, rows$source_id), function(source_rows) {
+        summary_horizon_from_rows(
+          paste0("Noites tropicais - ", source_rows$source_label[[1]]),
+          source_rows,
+          "target_date",
+          "signal_level_order",
+          report_date,
+          value_col = "value_c"
+        )
+      }, character(1))
+      paste(parts[nzchar(parts)], collapse = "; ")
+    },
+    future_driver = driver_text(future)
   )
 }
 
@@ -1529,6 +1730,34 @@ summary_order_value <- function(value) {
   }
 
   as.numeric(value)
+}
+
+summary_risk_icon <- function(order) {
+  if (length(order) > 1) {
+    return(vapply(order, summary_risk_icon, character(1)))
+  }
+  order <- summary_order_value(order)
+  if (order < 0) {
+    return("⚪")
+  }
+  if (order == 0) {
+    return("🟢")
+  }
+  if (order == 1) {
+    return("🟡")
+  }
+  if (order == 2) {
+    return("🟠")
+  }
+  "🔴"
+}
+
+summary_badged_status <- function(text, order) {
+  text <- summary_as_text(text)
+  if (grepl("🟢|🟡|🟠|🔴|⚪", text)) {
+    return(text)
+  }
+  paste(summary_risk_icon(order), text)
 }
 
 summary_signal_planning_order <- function(signal) {
@@ -1869,9 +2098,9 @@ summary_signal_authority <- function(domain) {
     "Índice UV" = "previsão oficial IPMA",
     "ÍCARO/FRIESA" = "índice oficial SNS/INSA",
     "Qualidade do ar" = "previsão ambiental QualAr",
-    "Temperatura DSP" = "regra técnica local",
-    "Noites tropicais" = "critério climatológico com dados IPMA",
-    "Onda de calor" = "critério técnico com dados IPMA",
+    "Temperatura DSP" = "regra técnica local; previsões IPMA/Open-Meteo",
+    "Noites tropicais" = "critério climatológico; previsões IPMA/Open-Meteo",
+    "Onda de calor" = "critério técnico; previsões IPMA/Open-Meteo",
     "Stress térmico UTCI" = "indicador bioclimático com dados IPMA",
     "Clima Extremo" = "sinal técnico complementar para edifícios",
     "indicador técnico"
@@ -1940,7 +2169,9 @@ summary_active_factor_lines <- function(signals) {
 
   vapply(active, function(signal) {
     paste0(
-      "- **",
+      "- ",
+      summary_risk_icon(signal$today_order),
+      " **",
       signal$domain,
       "** (",
       summary_signal_authority(signal$domain),
@@ -1977,7 +2208,9 @@ summary_preparation_factor_lines <- function(signals) {
       future_driver <- summary_as_text(signal$driver)
     }
     paste0(
-      "- **",
+      "- ",
+      summary_risk_icon(signal$future_order),
+      " **",
       signal$domain,
       "** (",
       summary_signal_authority(signal$domain),
@@ -2130,11 +2363,11 @@ summary_future_preparation_recommendations <- function(signals) {
       )
       vulnerable <- c(
         vulnerable,
-        "Antecipar a disponibilidade da medicação habitual e a possibilidade de reduzir exposição exterior caso a qualidade do ar agrave."
+        "Garantir medicação habitual acessível e possibilidade de reduzir exposição exterior se a qualidade do ar agravar."
       )
       establishments <- c(
         establishments,
-        "Preparar a adaptação de atividades exteriores intensas para grupos vulneráveis se a previsão de qualidade do ar se confirmar."
+        "Preparar alternativas às atividades exteriores intensas para grupos vulneráveis."
       )
     } else if (domain == "Avisos IPMA") {
       general <- c(
@@ -2147,11 +2380,11 @@ summary_future_preparation_recommendations <- function(signals) {
       )
       vulnerable <- c(
         vulnerable,
-        "Antecipar apoio a pessoas com maior dificuldade em adaptar deslocações, exposição ou condições de conforto ao fenómeno previsto."
+        "Confirmar contacto com pessoas vulneráveis que possam precisar de apoio em deslocações ou proteção."
       )
       establishments <- c(
         establishments,
-        "Rever hoje atividades exteriores, contactos e medidas de contingência aplicáveis ao fenómeno IPMA previsto."
+        "Rever atividades exteriores, contactos e medidas de contingência aplicáveis ao fenómeno previsto."
       )
     } else if (domain == "Índice UV") {
       general <- c(
@@ -2160,7 +2393,7 @@ summary_future_preparation_recommendations <- function(signals) {
       )
       vulnerable <- c(
         vulnerable,
-        "Antecipar proteção reforçada para crianças e pessoas particularmente sensíveis à radiação UV."
+        "Preparar proteção reforçada para crianças e pessoas particularmente sensíveis à radiação UV."
       )
       establishments <- c(
         establishments,
@@ -2191,11 +2424,11 @@ summary_future_preparation_recommendations <- function(signals) {
     )
     vulnerable <- c(
       vulnerable,
-      "Antecipar contactos, hidratação, medicação e acesso a ambiente termicamente confortável para pessoas vulneráveis."
+      "Preparar contactos prioritários; confirmar água, medicação e acesso a ambiente termicamente confortável."
     )
     establishments <- c(
       establishments,
-      "Verificar hoje conforto térmico, água, sombra/abrigo, capacidade de arrefecimento e alternativas às atividades de maior exposição."
+      "Verificar conforto térmico, água, sombra ou abrigo, capacidade de arrefecimento e alternativas às atividades de maior exposição."
     )
   }
 
@@ -2281,15 +2514,11 @@ summary_today_recommendations <- function(
     water_text <- summary_domain_text(signals, "Águas balneares", "driver")
     general <- c(
       general,
-      paste0(
-        "Existe restrição à prática balnear (",
-        water_text,
-        "); não tomar banho nem entrar na água nas praias afetadas e respeitar a sinalização local."
-      )
+      paste0("Não entrar na água nas praias com restrição (", water_text, "); respeitar a sinalização local.")
     )
     vulnerable <- c(
       vulnerable,
-      "Crianças, pessoas idosas, grávidas, pessoas imunocomprometidas ou com feridas/doença de pele devem evitar rigorosamente contacto com a água balnear afetada."
+      "Crianças, pessoas idosas, grávidas, pessoas imunocomprometidas ou com feridas/doença de pele devem evitar contacto com a água balnear afetada."
     )
     establishments <- c(
       establishments,
@@ -2311,7 +2540,7 @@ summary_today_recommendations <- function(
     )
     establishments <- c(
       establishments,
-      "Garantir água, sombra/abrigo e possibilidade de ajustar horários ou intensidade das atividades."
+      "Garantir água, sombra ou abrigo e possibilidade de ajustar horários ou intensidade das atividades."
     )
   }
 
@@ -2341,11 +2570,11 @@ summary_today_recommendations <- function(
     general <- c(
       general,
       paste0(
-        "O Clima Extremo assinala risco em edifícios (",
+        "Reforçar a vigilância do conforto térmico em casa e equipamentos: ",
         clima_text,
         "; ",
         clima_driver,
-        "); reforçar vigilância de conforto térmico em casa e equipamentos."
+        "."
       )
     )
     vulnerable <- c(
@@ -2354,7 +2583,7 @@ summary_today_recommendations <- function(
     )
     establishments <- c(
       establishments,
-      "Confirmar conforto térmico das salas, água disponível, sombra/abrigo e possibilidade de adaptar atividades se outros indicadores agravarem."
+      "Confirmar conforto térmico das salas, água disponível, sombra ou abrigo e possibilidade de adaptar atividades se outros indicadores agravarem."
     )
   }
 
@@ -2379,9 +2608,9 @@ summary_today_recommendations <- function(
     general <- c(
       general,
       paste0(
-        "O índice UV requer proteção hoje (",
+        "Usar óculos com filtro UV, chapéu e protetor solar em exposição prolongada: ",
         uv_today,
-        "); usar óculos com filtro UV, chapéu e protetor solar em exposição prolongada."
+        "."
       )
     )
     vulnerable <- c(
@@ -2390,7 +2619,7 @@ summary_today_recommendations <- function(
     )
     establishments <- c(
       establishments,
-      "Garantir sombra, água, pausas e disponibilidade/incentivo a chapéu, óculos e protetor solar em atividades exteriores."
+      "Garantir sombra, água e pausas; incentivar chapéu, óculos e protetor solar em atividades exteriores."
     )
   }
 
@@ -2402,31 +2631,32 @@ summary_today_recommendations <- function(
   }
 
   if (length(general) == 0) {
-    general <- "Manter atividades habituais, com vigilância diária das atualizações."
-  } else {
-    general <- paste(general, collapse = " ")
+    general <- "Manter atividades habituais e acompanhar as atualizações."
   }
-
   if (length(vulnerable) == 0) {
-    vulnerable <- "Manter rotinas habituais, com atenção a sintomas respiratórios, cardiovasculares ou desconforto térmico."
-  } else {
-    vulnerable <- paste(vulnerable, collapse = " ")
+    vulnerable <- "Manter rotinas habituais e vigiar sintomas ou desconforto térmico."
   }
-
   if (length(establishments) == 0) {
-    establishments <- "Manter atividades previstas, garantindo canais de comunicação, água e possibilidade de adaptação se os indicadores agravarem."
-  } else {
-    establishments <- paste(establishments, collapse = " ")
+    establishments <- "Manter atividades previstas e capacidade de adaptação."
   }
+  general <- unique(general)
+  vulnerable <- unique(vulnerable)
+  establishments <- unique(establishments)
 
   horizon <- summary_recommendation_horizon(signals)
 
   recommendation_lines <- c(
-    paste0("**Comunicação geral:** ", general),
+    "### Comunicação geral",
     "",
-    paste0("**Grupos vulneráveis:** ", vulnerable),
+    paste0("- ", general),
     "",
-    paste0("**Estabelecimentos/equipamentos:** ", establishments)
+    "### Grupos vulneráveis",
+    "",
+    paste0("- ", vulnerable),
+    "",
+    "### Estabelecimentos/equipamentos",
+    "",
+    paste0("- ", establishments)
   )
 
   if (include_horizon) {
@@ -2507,7 +2737,7 @@ summary_no_signal_lines <- function(signals) {
   }
 
   vapply(inactive, function(signal) {
-    paste0("- ", signal$domain, ": ", signal$today, ".")
+    paste0("- 🟢 ", signal$domain, ": ", signal$today, ".")
   }, character(1))
 }
 
@@ -2540,9 +2770,12 @@ summary_table_lines <- function(signals) {
         "| ",
         signal$domain,
         " | ",
-        signal$today,
+        summary_badged_status(signal$today, signal$today_order),
         " | ",
-        summary_display_date_text(signal$future),
+        summary_badged_status(
+          summary_display_date_text(signal$future),
+          signal$future_order
+        ),
         " | ",
         summary_signal_decision(signal),
         " |"
@@ -2553,7 +2786,8 @@ summary_table_lines <- function(signals) {
 
 summary_data_limitation_lines <- function(report_date) {
   lines <- c(
-    "- O nível operacional é uma síntese de apoio à decisão e não substitui avisos oficiais nem a ativação formal do plano.",
+    "- A síntese e os códigos de cor apoiam a decisão, mas não substituem avisos oficiais nem a ativação formal do plano.",
+    "- A comparação IPMA/Open-Meteo aplica-se ao DSP, noites tropicais e onda de calor. O UTCI permanece exclusivamente IPMA, porque temperatura aparente e UTCI não são indicadores equivalentes.",
     paste(
       "- Não integra indicadores assistenciais internos da ULSM",
       "(SU, CSP, internamento, SAC, UHD), SINAVE/surtos locais, escalas, camas ou stocks."
@@ -2580,12 +2814,6 @@ build_operational_summary_section <- function(report_date, model = NULL) {
 
   c(
     paste0("<!-- ", SUMMARY_MARKER, ":start -->"),
-    "## Decisão operacional",
-    "",
-    summary_local_risk_snapshot_lines(model),
-    "",
-    summary_operational_basis_lines(model),
-    "",
     "## Alertas e pré-alertas ativos",
     "",
     "### Sinais aplicáveis hoje",
@@ -2596,6 +2824,10 @@ build_operational_summary_section <- function(report_date, model = NULL) {
     "",
     summary_preparation_factor_lines(signals),
     "",
+    "## Horizonte temporal",
+    "",
+    summary_operational_horizon_lines(signals),
+    "",
     "## Ações a executar hoje",
     "",
     summary_today_recommendations(
@@ -2603,10 +2835,6 @@ build_operational_summary_section <- function(report_date, model = NULL) {
       include_horizon = FALSE,
       include_future = TRUE
     ),
-    "",
-    "## Horizonte operacional",
-    "",
-    summary_operational_horizon_lines(signals),
     "",
     "## Quadro rápido de risco",
     "",
@@ -2687,6 +2915,356 @@ ensure_detail_heading <- function(content) {
   summary_compact_blank_lines(c(before, "## Indicadores detalhados", "", after))
 }
 
+summary_temperature_value <- function(value) {
+  value <- suppressWarnings(as.numeric(value))
+  if (length(value) == 0 || is.na(value[[1]])) {
+    return("sem dados")
+  }
+  paste0(format(round(value[[1]], 1), trim = TRUE, nsmall = 1), " ºC")
+}
+
+summary_temperature_pair <- function(first, second) {
+  paste(
+    summary_temperature_value(first),
+    summary_temperature_value(second),
+    sep = " / "
+  )
+}
+
+summary_replace_exact_marked_section <- function(content, marker, section) {
+  start_marker <- paste0("<!-- ", marker, ":start -->")
+  end_marker <- paste0("<!-- ", marker, ":end -->")
+  start <- which(content == start_marker)
+  end <- which(content == end_marker)
+  if (length(start) == 0 || length(end) == 0 || end[[1]] < start[[1]]) {
+    return(content)
+  }
+
+  before <- if (start[[1]] > 1) content[seq_len(start[[1]] - 1)] else
+    character()
+  after <- if (end[[1]] < length(content)) {
+    content[(end[[1]] + 1):length(content)]
+  } else {
+    character()
+  }
+  summary_compact_blank_lines(c(before, section, after))
+}
+
+summary_station_observation_cell <- function(rows, date_value, station_id) {
+  selected <- rows[
+    rows$target_date == as.character(date_value) &
+      rows$station_id == station_id,
+    ,
+    drop = FALSE
+  ]
+  if (nrow(selected) == 0) {
+    return("sem dados")
+  }
+  paste0(
+    summary_temperature_value(selected$tmin_c),
+    " / ",
+    summary_temperature_value(selected$tmax_c),
+    " (",
+    selected$hourly_observations,
+    " h)"
+  )
+}
+
+summary_temperature_observation_lines <- function(report_date) {
+  station_rows <- tsc_recent_station_observations(report_date)
+  history <- tsc_observations()
+  dates <- as.Date(report_date) - 3:1
+
+  c(
+    "#### Observações usadas e estações de referência",
+    "",
+    "A série operacional usa o valor municipal IPMA quando disponível; nas datas recentes ainda sem esse registo, usa a média dos extremos diários de Pedras Rubras e S. Gens. As duas estações e a respetiva completude são apresentadas separadamente; o maior ou menor extremo não substitui automaticamente a série.",
+    "",
+    "| Data | Série usada Tmin/Tmax | Pedras Rubras Tmin/Tmax | S. Gens Tmin/Tmax |",
+    "|---|---|---|---|",
+    vapply(dates, function(date_value) {
+      history_row <- history[
+        as.Date(history$target_date) == date_value,
+        ,
+        drop = FALSE
+      ]
+      history_cell <- if (nrow(history_row) == 0) {
+        "sem dados"
+      } else {
+        paste0(
+          summary_temperature_value(history_row$tmin_c),
+          " / ",
+          summary_temperature_value(history_row$tmax_c)
+        )
+      }
+      paste0(
+        "| ",
+        as.character(date_value),
+        " | ",
+        history_cell,
+        " | ",
+        summary_station_observation_cell(
+          station_rows,
+          date_value,
+          "1200545"
+        ),
+        " | ",
+        summary_station_observation_cell(
+          station_rows,
+          date_value,
+          "1210649"
+        ),
+        " |"
+      )
+    }, character(1))
+  )
+}
+
+summary_dsp_comparison_section <- function(report_date) {
+  rows <- tsc_dsp_comparison(report_date)
+  if (nrow(rows) == 0) {
+    return(character())
+  }
+
+  levels <- suppressWarnings(as.numeric(rows$overall_alert_level))
+  highest <- if (all(is.na(levels))) -1 else max(levels, na.rm = TRUE)
+  labels <- paste0(
+    rows$source_label,
+    " ",
+    summary_risk_icon(rows$overall_alert_level),
+    " ",
+    rows$overall_alert
+  )
+  interpretation <- if (length(unique(rows$overall_alert)) > 1) {
+    paste0(
+      "As fontes divergem: ",
+      paste(labels, collapse = "; "),
+      ". Usar o cenário mais exigente como pré-alerta técnico e manter o IPMA como referência oficial."
+    )
+  } else {
+    paste0(
+      "As fontes são concordantes: ",
+      paste(labels, collapse = "; "),
+      "."
+    )
+  }
+
+  recommendations <- if (highest <= 0) {
+    "- Sem medidas adicionais pelo indicador DSP; manter vigilância das atualizações."
+  } else if (highest == 1) {
+    c(
+      "- Reforçar hidratação e reduzir exposição e esforço nas horas mais quentes.",
+      "- Confirmar contacto, água, medicação e ambiente fresco para pessoas vulneráveis.",
+      "- Rever horários, sombra, pausas e alternativas às atividades exteriores."
+    )
+  } else {
+    c(
+      "- Evitar exposição solar e esforço exterior nas horas de maior calor.",
+      "- Reforçar acompanhamento ativo de pessoas vulneráveis e acesso a ambiente fresco.",
+      "- Condicionar atividades exteriores intensas e ativar medidas de arrefecimento."
+    )
+  }
+
+  c(
+    "<!-- temperatura-dsp:start -->",
+    paste0(
+      "### Temperatura DSP - IPMA e Open-Meteo - ",
+      report_date
+    ),
+    "",
+    "A mesma regra DSP e as mesmas observações recentes são aplicadas separadamente às previsões das duas fontes. O Open-Meteo é complementar e não constitui aviso oficial.",
+    "",
+    "| Fonte da previsão | Tmax D/D+1 | Sinal máxima | Tmin D/D+1 | Sinal mínima | Sinal global |",
+    "|---|---:|---|---:|---|---|",
+    vapply(seq_len(nrow(rows)), function(index) {
+      row <- rows[index, , drop = FALSE]
+      paste0(
+        "| ",
+        row$source_label,
+        " | ",
+        summary_temperature_pair(
+          row$tmax_forecast_d0_c,
+          row$tmax_forecast_d_plus_1_c
+        ),
+        " | ",
+        summary_badged_status(row$tmax_alert, row$tmax_alert_level),
+        " | ",
+        summary_temperature_pair(
+          row$tmin_forecast_d0_c,
+          row$tmin_forecast_d_plus_1_c
+        ),
+        " | ",
+        summary_badged_status(row$tmin_alert, row$tmin_alert_level),
+        " | ",
+        summary_badged_status(row$overall_alert, row$overall_alert_level),
+        " |"
+      )
+    }, character(1)),
+    "",
+    paste0("**Leitura comparada:** ", interpretation),
+    "",
+    summary_temperature_observation_lines(report_date),
+    "",
+    "#### Medidas associadas ao cenário mais exigente",
+    "",
+    recommendations,
+    "<!-- temperatura-dsp:end -->"
+  )
+}
+
+summary_parallel_dates <- function(rows, report_date) {
+  sources <- unique(rows$source_id)
+  if (length(sources) < 2) {
+    return(sort(unique(as.Date(rows$target_date))))
+  }
+  dates <- lapply(sources, function(source_id) {
+    as.Date(rows$target_date[rows$source_id == source_id])
+  })
+  common <- Reduce(intersect, lapply(dates, as.character))
+  sort(as.Date(common[as.Date(common) >= as.Date(report_date)]))
+}
+
+summary_tropical_comparison_section <- function(report_date) {
+  rows <- tsc_tropical_nights(report_date)
+  if (nrow(rows) == 0) {
+    return(character())
+  }
+  dates <- summary_parallel_dates(rows, report_date)
+  source_ids <- c("ipma", "openmeteo")
+
+  c(
+    "<!-- tropical-nights:start -->",
+    paste0(
+      "### Noites tropicais - IPMA e Open-Meteo - ",
+      report_date
+    ),
+    "",
+    "Critério: Tmin >= 20 ºC. O indicador é complementar e não possui, isoladamente, limiar aprovado para ativação formal do plano local.",
+    "",
+    "| Data | IPMA Tmin | IPMA sinal | Open-Meteo Tmin | Open-Meteo sinal |",
+    "|---|---:|---|---:|---|",
+    vapply(dates, function(date_value) {
+      selected <- lapply(source_ids, function(source_id) {
+        rows[
+          rows$source_id == source_id &
+            as.Date(rows$target_date) == date_value,
+          ,
+          drop = FALSE
+        ]
+      })
+      cells <- lapply(selected, function(row) {
+        if (nrow(row) == 0) {
+          return(c("sem dados", "⚪ Sem dados"))
+        }
+        c(
+          summary_temperature_value(row$value_c),
+          summary_badged_status(row$status, row$signal_level_order)
+        )
+      })
+      paste0(
+        "| ",
+        as.character(date_value),
+        " | ",
+        cells[[1]][[1]],
+        " | ",
+        cells[[1]][[2]],
+        " | ",
+        cells[[2]][[1]],
+        " | ",
+        cells[[2]][[2]],
+        " |"
+      )
+    }, character(1)),
+    "",
+    "A sequência é calculada separadamente por fonte, combinando as mesmas observações passadas com cada previsão.",
+    "<!-- tropical-nights:end -->"
+  )
+}
+
+summary_heat_wave_comparison_section <- function(report_date) {
+  rows <- tsc_heat_waves(report_date)
+  if (nrow(rows) == 0) {
+    return(character())
+  }
+  dates <- summary_parallel_dates(rows, report_date)
+  source_ids <- c("ipma", "openmeteo")
+
+  c(
+    "<!-- onda-calor:start -->",
+    paste0(
+      "### Onda de calor - IPMA e Open-Meteo - ",
+      report_date
+    ),
+    "",
+    "Critério IPMA aplicado em paralelo: pelo menos 6 dias consecutivos com Tmax superior em 5 ºC à normal mensal de Porto/Pedras Rubras 1991-2020. Uma sequência prevista é apresentada como possível onda de calor.",
+    "",
+    "| Data | Limiar | IPMA Tmax / sequência / estado | Open-Meteo Tmax / sequência / estado |",
+    "|---|---:|---|---|",
+    vapply(dates, function(date_value) {
+      selected <- lapply(source_ids, function(source_id) {
+        rows[
+          rows$source_id == source_id &
+            as.Date(rows$target_date) == date_value,
+          ,
+          drop = FALSE
+        ]
+      })
+      cell <- function(row) {
+        if (nrow(row) == 0) {
+          return("⚪ sem dados")
+        }
+        paste0(
+          summary_temperature_value(row$value_c),
+          " / ",
+          row$sequence_length,
+          " d / ",
+          summary_badged_status(row$status, row$heat_wave_level)
+        )
+      }
+      threshold <- if (nrow(selected[[1]]) > 0) {
+        selected[[1]]$threshold_c
+      } else if (nrow(selected[[2]]) > 0) {
+        selected[[2]]$threshold_c
+      } else {
+        NA_real_
+      }
+      paste0(
+        "| ",
+        as.character(date_value),
+        " | ",
+        summary_temperature_value(threshold),
+        " | ",
+        cell(selected[[1]]),
+        " | ",
+        cell(selected[[2]]),
+        " |"
+      )
+    }, character(1)),
+    "",
+    "O resultado das duas fontes é mantido separado; não se prolonga nem combina uma sequência entre modelos.",
+    "<!-- onda-calor:end -->"
+  )
+}
+
+replace_parallel_temperature_sections <- function(content, report_date) {
+  sections <- list(
+    "temperatura-dsp" = summary_dsp_comparison_section(report_date),
+    "tropical-nights" = summary_tropical_comparison_section(report_date),
+    "onda-calor" = summary_heat_wave_comparison_section(report_date)
+  )
+  for (marker in names(sections)) {
+    section <- sections[[marker]]
+    if (length(section) > 0) {
+      content <- summary_replace_exact_marked_section(
+        content,
+        marker,
+        section
+      )
+    }
+  }
+  content
+}
+
 build_quick_daily_report <- function(report_date, model = NULL) {
   if (is.null(model)) {
     model <- summary_build_operational_model(report_date)
@@ -2696,12 +3274,6 @@ build_quick_daily_report <- function(report_date, model = NULL) {
 
   summary_compact_blank_lines(c(
     summary_report_title(report_date),
-    "",
-    "## Resumo operacional",
-    "",
-    summary_local_risk_snapshot_lines(model),
-    "",
-    summary_operational_basis_lines(model),
     "",
     "## Alertas e pré-alertas ativos",
     "",
@@ -2713,6 +3285,10 @@ build_quick_daily_report <- function(report_date, model = NULL) {
     "",
     summary_preparation_factor_lines(signals),
     "",
+    "## Horizonte temporal",
+    "",
+    summary_operational_horizon_lines(signals),
+    "",
     "## Ações a executar hoje",
     "",
     summary_today_recommendations(
@@ -2720,10 +3296,6 @@ build_quick_daily_report <- function(report_date, model = NULL) {
       include_horizon = FALSE,
       include_future = TRUE
     ),
-    "",
-    "## Horizonte operacional",
-    "",
-    summary_operational_horizon_lines(signals),
     "",
     "## Sem ativação adicional",
     "",
@@ -2763,9 +3335,17 @@ finalize_daily_report <- function(content, report_date, model = NULL) {
   }
   content <- normalize_report_header(content, report_date)
   content <- replace_operational_summary(content, report_date, model)
+  content <- replace_parallel_temperature_sections(content, report_date)
   content <- ensure_detail_heading(content)
   content <- replace_source_status_section(content, report_date)
-  replace_report_sources(content)
+  content <- replace_report_sources(content)
+  content <- gsub(
+    "evitar rigorosamente contacto",
+    "evitar contacto",
+    content,
+    fixed = TRUE
+  )
+  replace_report_index(content)
 }
 
 refresh_daily_summary_file <- function(report_path, report_date) {

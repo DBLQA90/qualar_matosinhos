@@ -30,7 +30,16 @@ require_env <- function(name) {
 
 markdown_summary <- function(report_path) {
   content <- readLines(report_path, warn = FALSE, encoding = "UTF-8")
-  stop_at <- grep("^## Horizonte operacional", content)
+  index_start <- which(content == "<!-- indice:start -->")
+  index_end <- which(content == "<!-- indice:end -->")
+  if (length(index_start) > 0 &&
+      length(index_end) > 0 &&
+      index_end[[1]] >= index_start[[1]]) {
+    content <- content[-seq(index_start[[1]], index_end[[1]])]
+  }
+  content <- content[!grepl("^<a id=\"sec-[^\"]+\"></a>$", content)]
+
+  stop_at <- grep("^## Quadro rápido de risco", content)
   if (length(stop_at) == 0) {
     stop_at <- grep(paste0("^<!-- ", "sintese", ":end -->$"), content)
   }

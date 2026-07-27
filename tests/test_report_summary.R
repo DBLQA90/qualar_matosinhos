@@ -171,10 +171,25 @@ expect_identical(
 
 quick <- build_quick_daily_report("2026-07-26", escalation_model)
 full <- build_operational_summary_section("2026-07-26", escalation_model)
-expected_badge <- "**Nível operacional:** 🟠 Laranja - Nível 2 - Resposta reforçada."
 expect_true(
-  expected_badge %in% quick && expected_badge %in% full,
-  "Quick and full reports must use the same operational model."
+  !any(grepl("^## Decisão operacional$", quick)) &&
+    !any(grepl("^## Decisão operacional$", full)),
+  "The redundant operational decision section must be absent."
+)
+expect_true(
+  any(grepl("^- 🔴 \\*\\*Clima Extremo\\*\\*", quick)) &&
+    any(grepl("^- 🔴 \\*\\*Clima Extremo\\*\\*", full)),
+  "Alerts and pre-alerts must expose a rapid colour code."
+)
+expect_true(
+  match("## Horizonte temporal", quick) <
+    match("## Ações a executar hoje", quick),
+  "The forecast horizon must precede today's actions."
+)
+expect_true(
+  "### Comunicação geral" %in% quick &&
+    any(grepl("^- ", quick)),
+  "Today's actions must be grouped into bullet lists."
 )
 expect_true(
   !any(grepl("^\\| Dimensão \\|", quick)),
@@ -188,6 +203,41 @@ expect_identical(
   summary_display_date_text("2026-07-27: Extremo"),
   "27/07: Extremo",
   "Operational text must display forecast dates compactly."
+)
+
+index_fixture <- c(
+  "# PNPRSS Matosinhos | 2026-07-26",
+  "",
+  "## Alertas e pré-alertas ativos",
+  "",
+  "## Indicadores detalhados",
+  "",
+  "### Temperatura DSP - teste",
+  "",
+  "## Fontes e metodologia",
+  "",
+  "### Temperatura DSP"
+)
+indexed_once <- replace_report_index(index_fixture)
+indexed_twice <- replace_report_index(indexed_once)
+expect_identical(
+  indexed_twice,
+  indexed_once,
+  "The internal report index must be idempotent."
+)
+expect_true(
+  any(grepl(
+    "\\[Temperatura DSP - teste\\]\\(#sec-temperatura-dsp-teste\\)",
+    indexed_once
+  )),
+  "Detailed indicators must be linked from the internal index."
+)
+expect_true(
+  !any(grepl(
+    "\\[Temperatura DSP\\]\\(#sec-temperatura-dsp\\)",
+    indexed_once
+  )),
+  "Source subsections must not make the report index unnecessarily long."
 )
 
 tropical_only <- list(summary_signal(

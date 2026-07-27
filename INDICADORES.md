@@ -60,10 +60,10 @@ O catálogo distingue:
 |---|---|
 | Estado | Operacional automatizado |
 | Finalidade | Reproduzir os dois sinais DSP fornecidos pela ULSM para temperatura máxima e mínima persistentes. |
-| Fonte | Observações e previsões IPMA para Matosinhos. |
+| Fonte | Observações IPMA partilhadas; previsões IPMA e Open-Meteo avaliadas separadamente. |
 | Geografia | Concelho de Matosinhos; previsão `globalIdLocal=1130800`. |
 | Época de aplicação | Maio a outubro. |
-| Regra sazonal | Julho a dezembro usa os limiares de verão; maio e junho usam os restantes limiares. |
+| Regra sazonal | Julho a outubro usa os limiares de verão; maio e junho usam os restantes limiares. |
 | Máxima, julho ou posterior | Amarelo: D, D+1 e D-1 >=33 ºC. Vermelho: D, D+1 e D-1/D-2/D-3 >=35 ºC. |
 | Máxima, antes de julho | Amarelo: D, D+1 e D-1 >=32 ºC. Vermelho: D, D+1 e D-1/D-2/D-3 >=34 ºC. |
 | Mínima, julho ou posterior | Amarelo: D, D+1 e D-1/D-2 >=22 ºC. Vermelho: D, D+1 e D-1/D-2 >=25 ºC. |
@@ -71,9 +71,9 @@ O catálogo distingue:
 | Agregação | Nível global igual ao mais elevado entre máxima e mínima. |
 | Ficheiros | `data/ipma_matosinhos_temperature_alerts.csv` e `data/ipma_matosinhos_temperature_alert_latest.csv`. |
 | Dados em falta | Se faltar um valor obrigatório, a respetiva regra fica `Sem dados`; fora de maio-outubro fica `Fora de época`. |
-| Limitações | Regra técnica local; depende da qualidade dos observados recentes e da revisão das previsões. |
-| Papel na decisão | Contribui para vigilância/resposta térmica no período aplicável. |
-| Implementação | `fetch_ipma.R`. |
+| Limitações | Regra técnica local; depende da qualidade dos observados recentes e da revisão das previsões. O Open-Meteo é complementar e não constitui aviso oficial. |
+| Papel na decisão | O resultado IPMA mantém-se oficial; qualquer resultado mais exigente do Open-Meteo funciona como pré-alerta técnico. |
+| Implementação | Cálculo IPMA em `fetch_ipma.R`; comparação no boletim em `temperature_source_comparison.R` e `report_summary.R`. |
 
 ### TEMP-TROPICAL - Noites tropicais
 
@@ -81,18 +81,18 @@ O catálogo distingue:
 |---|---|
 | Estado | Complementar automatizado |
 | Finalidade | Detetar ausência de arrefecimento noturno e sequências observadas/previstas. |
-| Fonte | Exclusivamente observações e previsões IPMA para Matosinhos. |
+| Fonte | Observações IPMA; previsões IPMA e Open-Meteo mantidas separadas. |
 | Definição | Noite tropical quando a temperatura mínima diária é igual ou superior a 20 ºC. |
 | Unidade | ºC. |
-| Horizonte | Histórico observado disponível e horizonte diário da última previsão IPMA. |
+| Horizonte | Histórico observado disponível e horizonte comum das últimas previsões IPMA/Open-Meteo no quadro comparado. |
 | Sequência | Dias consecutivos com `Tmin >=20 ºC`; o ficheiro discrimina noites observadas e previstas. |
 | Classificação | Sem sinal: abaixo de 20 ºC. Vigilância: pelo menos uma noite tropical. Sem dados: Tmin ausente. |
 | Ficheiros | `data/ipma_matosinhos_tropical_nights_observed.csv`, `data/ipma_matosinhos_tropical_nights_forecasts.csv` e `data/ipma_matosinhos_tropical_nights_latest.csv`. |
 | Chaves | Observado: data. Previsão: atualização IPMA e data-alvo. |
-| Dados em falta | Não se completa com Open-Meteo nem se infere continuidade através de datas em falta. |
+| Dados em falta | Uma fonte não preenche a outra; não se infere continuidade através de datas em falta. |
 | Limitações | O plano local reconhece noites tropicais como risco, mas não define um limiar autónomo de ativação por número de noites. |
 | Papel na decisão | Produz sinal e recomendações, mas não sobe isoladamente o nível operacional sugerido. |
-| Implementação | `derive_tropical_nights.R`; resumo em `report_summary.R`. |
+| Implementação | Base IPMA em `derive_tropical_nights.R`; comparação no boletim em `temperature_source_comparison.R` e `report_summary.R`. |
 
 ### TEMP-HEATWAVE - Onda de calor
 
@@ -100,15 +100,15 @@ O catálogo distingue:
 |---|---|
 | Estado | Operacional automatizado |
 | Finalidade | Detetar uma onda de calor climatológica e antecipar sequências próximas do critério. |
-| Fonte | Tmax observada/prevista IPMA; normal climatológica IPMA 1991-2020 de Porto/Pedras Rubras. |
+| Fonte | Tmax observada IPMA; previsões IPMA/Open-Meteo separadas; normal climatológica IPMA 1991-2020 de Porto/Pedras Rubras. |
 | Definição formal | Pelo menos seis dias consecutivos com Tmax diária superior em 5 ºC à normal mensal. |
 | Sinal preventivo | Cinco dias consecutivos acima do limiar; não é uma onda de calor formal. |
 | Estado | Sem critério; sinal preventivo de 5 dias; possível onda de calor; onda de calor; sem dados. |
 | Ficheiros | `data/ipma_matosinhos_heat_waves.csv` e `data/ipma_matosinhos_heat_waves_latest.csv`. |
 | Dados em falta | A sequência só é formada por datas consecutivas com valor. |
-| Limitações | A normal mensal produz transições em degrau e usa Porto/Pedras Rubras como referência local. |
+| Limitações | A normal mensal produz transições em degrau e usa Porto/Pedras Rubras como referência local. O Open-Meteo não substitui a definição ou os avisos IPMA. |
 | Papel na decisão | Sinal preventivo e operacional de calor persistente. |
-| Implementação | `fetch_ipma.R`. |
+| Implementação | Base IPMA em `fetch_ipma.R`; comparação no boletim em `temperature_source_comparison.R` e `report_summary.R`. |
 
 ### TEMP-UTCI - Stress térmico UTCI
 
@@ -253,6 +253,8 @@ O catálogo distingue:
 - **Estado:** base automatizada.
 - **Fonte:** séries IPMA por concelho para Tmin/Tmax.
 - **Fallback:** média dos extremos diários das estações Pedras Rubras e S. Gens quando a série municipal recente ainda não cobre a data.
+- **Transparência no boletim:** os extremos e a contagem de horas de cada estação são mostrados separadamente nos dias usados pela regra DSP.
+- **Decisão pendente:** não se escolhe automaticamente o maior extremo no verão ou o menor no inverno; essa regra criaria uma série sazonal artificial. A eventual adoção de S. Gens como referência principal e Pedras Rubras como redundância exige primeiro avaliar cobertura, continuidade e diferenças sistemáticas.
 - **Média diária:** estimada por `(Tmin + Tmax) / 2`.
 - **Ficheiros:** `data/ipma_matosinhos_temperaturas.csv`, `data/ipma_matosinhos_station_observations.csv` e `data/ipma_matosinhos_station_daily_temperatures.csv`.
 - **Limitação:** o fallback é uma média de duas estações e fica identificado na coluna `source`.
@@ -282,11 +284,12 @@ O catálogo distingue:
 
 ### QA-OPENMETEO - Camada independente Open-Meteo
 
-- **Estado:** analítico e redundante; não entra no boletim operacional.
+- **Estado:** analítico, redundante e complementar no boletim.
 - **Produtos:** ERA5-Land histórico, previsão corrente, Historical Forecast API e Previous Runs D+0 a D+7.
 - **Finalidade:** comparar fontes, estudar viés e preservar previsões passadas.
 - **Ficheiros:** `data/openmeteo_matosinhos_history_daily.csv`, `data/openmeteo_matosinhos_forecasts.csv`, `data/openmeteo_matosinhos_forecast_latest.csv`, `data/openmeteo_matosinhos_historical_forecasts.csv`, `data/openmeteo_matosinhos_previous_runs_daily.csv`, `data/openmeteo_matosinhos_forecast_errors.csv` e respetivos resumos/estado.
 - **Limitação:** reanálise não equivale a observação de estação; erros são calculados contra a própria ERA5-Land para manter independência metodológica.
+- **Papel no boletim:** aparece em paralelo no DSP, noites tropicais e onda de calor. Um sinal mais exigente gera pré-alerta técnico, sem substituir o IPMA nem corrigir automaticamente valores.
 
 ### QA-TEMP-COMPARISON - Comparação pareada IPMA/Open-Meteo
 
