@@ -12,24 +12,18 @@ expect_identical <- function(actual, expected, message) {
   }
 }
 
+# Os patamares da regra DSP são testados em tests/test_dsp_rules.R. Aqui só se
+# verifica que estes wrappers delegam no módulo partilhado, sem regra própria.
 expect_identical(
-  unname(tsc_dsp_classify_tmax(
-    as.Date("2026-07-26"),
-    c(35, 35, 35),
-    c(35, 35)
-  )[["label"]]),
-  "Vermelho",
-  "Five maximum-temperature values at the red threshold must be red."
+  tsc_dsp_classify_tmax(as.Date("2026-07-26"), c(30, 31, 33), c(34, 34)),
+  dsp_classify_tmax(as.Date("2026-07-26"), c(30, 31, 33), c(34, 34)),
+  "The maximum wrapper must delegate to the shared DSP module."
 )
 
 expect_identical(
-  unname(tsc_dsp_classify_tmax(
-    as.Date("2026-07-26"),
-    c(30, 31, 33),
-    c(34, 34)
-  )[["label"]]),
-  "Amarelo",
-  "The yellow maximum rule must use D-1, D and D+1."
+  tsc_dsp_classify_tmin(as.Date("2026-07-26"), c(23, 23), c(23, 23)),
+  dsp_classify_tmin(as.Date("2026-07-26"), c(23, 23), c(23, 23)),
+  "The minimum wrapper must delegate to the shared DSP module."
 )
 
 expect_identical(
@@ -111,6 +105,16 @@ expect_true(
     "Amarelo"
   ),
   "The Open-Meteo fixture must independently trigger a yellow DSP signal."
+)
+
+out_of_season <- tsc_dsp_comparison("2026-11-26")
+expect_true(
+  all(out_of_season$overall_alert == "Fora de época"),
+  "Outside May-October the aggregated DSP signal must stay out of season, not missing data."
+)
+expect_true(
+  all(out_of_season$overall_alert_level == -2),
+  "Out of season must keep a code distinct from missing data all the way to the report."
 )
 
 tropical <- tsc_tropical_nights("2026-07-26")
