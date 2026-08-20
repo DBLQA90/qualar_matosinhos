@@ -846,3 +846,8 @@
 "2026-08-19T15:03:00Z","historical-forecast","ok","2026-08-19T15:03:02Z","2026-08-19T15:03:03Z","Open-Meteo arquivo de previsões atualizado: 31 linha(s). "
 "2026-08-19T15:03:00Z","previous-runs","ok","2026-08-19T15:03:03Z","2026-08-19T15:03:04Z","Open-Meteo previous runs atualizados: 248 linha(s). "
 "2026-08-19T15:03:00Z","errors","ok","2026-08-19T15:03:04Z","2026-08-19T15:03:04Z","Open-Meteo erros calculados: 7550 linha(s). "
+"2026-08-20T09:05:02Z","history","ok","2026-08-20T09:05:02Z","2026-08-20T09:05:04Z","Open-Meteo histórico atualizado: 32 linha(s). "
+"2026-08-20T09:05:02Z","forecast","ok","2026-08-20T09:05:04Z","2026-08-20T09:05:04Z","Open-Meteo previsão futura atualizada: 16 linha(s). "
+"2026-08-20T09:05:02Z","historical-forecast","ok","2026-08-20T09:05:04Z","2026-08-20T09:05:05Z","Open-Meteo arquivo de previsões atualizado: 32 linha(s). "
+"2026-08-20T09:05:02Z","previous-runs","ok","2026-08-20T09:05:05Z","2026-08-20T09:05:06Z","Open-Meteo previous runs atualizados: 248 linha(s). "
+"2026-08-20T09:05:02Z","errors","ok","2026-08-20T09:05:06Z","2026-08-20T09:05:07Z","Open-Meteo erros calculados: 7558 linha(s). "
