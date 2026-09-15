@@ -132,4 +132,5 @@ location,latitude,longitude,forecast_date,qualar_index,source,responsible_pollut
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-12,3,UA,NO2=113,113,92,25,18,Verde (0),Verde (0),Verde (0),Amarelo (1),1,Amarelo (1),PM2.5 18 µg/m³ - Amarelo (1),2026-09-12T12:16:38Z
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-13,3,UA,NO2=114,114,97,26,18,Verde (0),Verde (0),Verde (0),Amarelo (1),1,Amarelo (1),PM2.5 18 µg/m³ - Amarelo (1),2026-09-13T13:24:10Z
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-14,3,UA,O3=117;PM2.5=23;NO2=115,115,117,32,23,Verde (0),Amarelo (1),Verde (0),Amarelo (1),1,Amarelo (1),O3 117 µg/m³ - Amarelo (1); PM2.5 23 µg/m³ - Amarelo (1),2026-09-14T15:15:13Z
-"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-15,3,UA,PM2.5=22;NO2=107,107,96,33,22,Verde (0),Verde (0),Verde (0),Amarelo (1),1,Amarelo (1),PM2.5 22 µg/m³ - Amarelo (1),2026-09-14T15:15:13Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-15,2,UA,O3=99;PM10=28;PM2.5=19;NO2=78,78,99,28,19,Verde (0),Verde (0),Verde (0),Amarelo (1),1,Amarelo (1),PM2.5 19 µg/m³ - Amarelo (1),2026-09-15T13:44:29Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-09-16,2,UA,O3=85,21,85,10,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-09-15T13:44:29Z
