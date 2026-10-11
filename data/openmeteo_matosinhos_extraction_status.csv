@@ -1361,3 +1361,8 @@
 "2026-10-10T18:46:38Z","historical-forecast","ok","2026-10-10T18:46:40Z","2026-10-10T18:46:41Z","Open-Meteo arquivo de previsões atualizado: 31 linha(s). "
 "2026-10-10T18:46:38Z","previous-runs","erro","2026-10-10T18:46:41Z","2026-10-10T18:47:13Z","lexical error: invalid char in json text. Unexpected error while streamin (right here) ------^ "
 "2026-10-10T18:46:38Z","errors","ok","2026-10-10T18:47:13Z","2026-10-10T18:47:13Z","Open-Meteo erros calculados: 7966 linha(s). "
+"2026-10-11T15:00:44Z","history","ok","2026-10-11T15:00:44Z","2026-10-11T15:00:45Z","Open-Meteo histórico atualizado: 32 linha(s). "
+"2026-10-11T15:00:44Z","forecast","ok","2026-10-11T15:00:45Z","2026-10-11T15:00:46Z","Open-Meteo previsão futura atualizada: 16 linha(s). "
+"2026-10-11T15:00:44Z","historical-forecast","ok","2026-10-11T15:00:46Z","2026-10-11T15:00:46Z","Open-Meteo arquivo de previsões atualizado: 32 linha(s). "
+"2026-10-11T15:00:44Z","previous-runs","ok","2026-10-11T15:00:46Z","2026-10-11T15:00:47Z","Open-Meteo previous runs atualizados: 248 linha(s). "
+"2026-10-11T15:00:44Z","errors","ok","2026-10-11T15:00:47Z","2026-10-11T15:00:48Z","Open-Meteo erros calculados: 7974 linha(s). "
