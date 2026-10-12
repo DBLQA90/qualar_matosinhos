@@ -1,6 +1,6 @@
 # Catálogo de indicadores do PNPRSS Matosinhos
 
-Última revisão: 2026-07-26
+Última revisão: 2026-07-29
 
 ## Objetivo
 
@@ -70,10 +70,10 @@ O catálogo distingue:
 | Mínima, antes de julho | Amarelo: D, D+1 e D-1/D-2 >=21 ºC. Vermelho: D, D+1 e D-1/D-2 >=24 ºC. |
 | Agregação | Nível global igual ao mais elevado entre máxima e mínima. |
 | Ficheiros | `data/ipma_matosinhos_temperature_alerts.csv` e `data/ipma_matosinhos_temperature_alert_latest.csv`. |
-| Dados em falta | Se faltar um valor obrigatório, a respetiva regra fica `Sem dados`; fora de maio-outubro fica `Fora de época`. |
+| Dados em falta | Se faltar um valor exigido pela regra a avaliar, essa regra fica `Sem dados`; fora de maio-outubro fica `Fora de época`. A ausência de D-2/D-3 impede apenas o Vermelho da máxima e não suprime um Amarelo determinável, porque a regra amarela da máxima só depende de D-1, D e D+1. |
 | Limitações | Regra técnica local; depende da qualidade dos observados recentes e da revisão das previsões. O Open-Meteo é complementar e não constitui aviso oficial. |
 | Papel na decisão | O resultado IPMA mantém-se oficial; qualquer resultado mais exigente do Open-Meteo funciona como pré-alerta técnico. |
-| Implementação | Cálculo IPMA em `fetch_ipma.R`; comparação no boletim em `temperature_source_comparison.R` e `report_summary.R`. |
+| Implementação | Regra única em `dsp_rules.R`, módulo sem efeitos laterais coberto por `tests/test_dsp_rules.R`. Aplicada ao cálculo IPMA em `fetch_ipma.R` e à comparação no boletim em `temperature_source_comparison.R` e `report_summary.R`. Qualquer alteração aos limiares ou aos patamares faz-se só em `dsp_rules.R`. |
 
 ### TEMP-TROPICAL - Noites tropicais
 

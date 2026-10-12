@@ -1,3 +1,5 @@
+source("dsp_rules.R", encoding = "UTF-8")
+
 TSC_IPMA_FORECAST_PATH <- "data/ipma_matosinhos_forecast_latest.csv"
 TSC_OPENMETEO_FORECAST_PATH <- "data/openmeteo_matosinhos_forecast_latest.csv"
 TSC_TEMPERATURE_HISTORY_PATH <- "data/ipma_matosinhos_temperaturas.csv"
@@ -179,62 +181,14 @@ tsc_forecast_for_date <- function(rows, source_id, date_value, column) {
   tsc_num(selected[[column]][[1]])
 }
 
-tsc_dsp_thresholds <- function(date_value, kind) {
-  month_value <- as.integer(format(as.Date(date_value), "%m"))
-  if (month_value < 5 || month_value > 10) {
-    return(list(applicable = FALSE, yellow = NA_real_, red = NA_real_))
-  }
-
-  warm_rule <- month_value >= 7
-  if (kind == "tmax") {
-    values <- if (warm_rule) c(yellow = 33, red = 35) else
-      c(yellow = 32, red = 34)
-  } else {
-    values <- if (warm_rule) c(yellow = 22, red = 25) else
-      c(yellow = 21, red = 24)
-  }
-
-  list(
-    applicable = TRUE,
-    yellow = unname(values[["yellow"]]),
-    red = unname(values[["red"]])
-  )
-}
-
+# A regra DSP vive em dsp_rules.R e é partilhada com fetch_ipma.R. Estes wrappers
+# existem só para manter os nomes tsc_* usados neste ficheiro e nos testes.
 tsc_dsp_classify_tmax <- function(date_value, observed, forecast) {
-  thresholds <- tsc_dsp_thresholds(date_value, "tmax")
-  values <- c(observed, forecast)
-  if (!thresholds$applicable) {
-    return(c(label = "Fora de época", level = -1))
-  }
-  if (any(is.na(values))) {
-    return(c(label = "Sem dados", level = -1))
-  }
-  if (all(values >= thresholds$red)) {
-    return(c(label = "Vermelho", level = 3))
-  }
-  if (all(c(observed[[3]], forecast) >= thresholds$yellow)) {
-    return(c(label = "Amarelo", level = 1))
-  }
-  c(label = "Verde", level = 0)
+  dsp_classify_tmax(date_value, observed, forecast)
 }
 
 tsc_dsp_classify_tmin <- function(date_value, observed, forecast) {
-  thresholds <- tsc_dsp_thresholds(date_value, "tmin")
-  values <- c(observed, forecast)
-  if (!thresholds$applicable) {
-    return(c(label = "Fora de época", level = -1))
-  }
-  if (any(is.na(values))) {
-    return(c(label = "Sem dados", level = -1))
-  }
-  if (all(values >= thresholds$red)) {
-    return(c(label = "Vermelho", level = 3))
-  }
-  if (all(values >= thresholds$yellow)) {
-    return(c(label = "Amarelo", level = 1))
-  }
-  c(label = "Verde", level = 0)
+  dsp_classify_tmin(date_value, observed, forecast)
 }
 
 tsc_dsp_comparison <- function(report_date) {
@@ -268,16 +222,8 @@ tsc_dsp_comparison <- function(report_date) {
     )
     tmax <- tsc_dsp_classify_tmax(report_date, observed_tmax, forecast_tmax)
     tmin <- tsc_dsp_classify_tmin(report_date, observed_tmin, forecast_tmin)
-    levels <- suppressWarnings(as.numeric(c(tmax[["level"]], tmin[["level"]])))
-    overall_level <- if (all(levels < 0)) -1 else max(levels, na.rm = TRUE)
-    overall_label <- switch(
-      as.character(overall_level),
-      "-1" = "Sem dados",
-      "0" = "Verde",
-      "1" = "Amarelo",
-      "3" = "Vermelho",
-      "Sem dados"
-    )
+    overall_label <- dsp_overall_alert(tmax$alert, tmin$alert)
+    overall_level <- tsc_num(dsp_alert_level(overall_label))
 
     data.frame(
       source_id = source_id,
@@ -288,14 +234,14 @@ tsc_dsp_comparison <- function(report_date) {
       tmax_observed_d_minus_1_c = observed_tmax[[3]],
       tmax_forecast_d0_c = forecast_tmax[[1]],
       tmax_forecast_d_plus_1_c = forecast_tmax[[2]],
-      tmax_alert = tmax[["label"]],
-      tmax_alert_level = as.numeric(tmax[["level"]]),
+      tmax_alert = tmax$alert,
+      tmax_alert_level = tsc_num(tmax$level),
       tmin_observed_d_minus_2_c = observed_tmin[[1]],
       tmin_observed_d_minus_1_c = observed_tmin[[2]],
       tmin_forecast_d0_c = forecast_tmin[[1]],
       tmin_forecast_d_plus_1_c = forecast_tmin[[2]],
-      tmin_alert = tmin[["label"]],
-      tmin_alert_level = as.numeric(tmin[["level"]]),
+      tmin_alert = tmin$alert,
+      tmin_alert_level = tsc_num(tmin$level),
       overall_alert = overall_label,
       overall_alert_level = overall_level,
       stringsAsFactors = FALSE

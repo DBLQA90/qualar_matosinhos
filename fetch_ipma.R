@@ -2,6 +2,7 @@ library(httr)
 library(jsonlite)
 library(dplyr)
 library(readr)
+source("dsp_rules.R", encoding = "UTF-8")
 source("report_summary.R", encoding = "UTF-8")
 
 DATA_DIR <- "data"
@@ -383,13 +384,9 @@ IPMA_ALERT_KEY_COLUMNS <- c(
   "alert_type"
 )
 
-HEAT_LEVELS <- c(
-  "Fora de época" = -2,
-  "Sem dados" = -1,
-  "Verde" = 0,
-  "Amarelo" = 1,
-  "Vermelho" = 3
-)
+# Níveis e regra DSP vivem em dsp_rules.R, partilhados com
+# temperature_source_comparison.R.
+HEAT_LEVELS <- DSP_LEVELS
 
 HEAT_SOURCE_LINKS <- c(
   "- IPMA, API de dados meteorológicos: https://api.ipma.pt/",
@@ -1072,148 +1069,6 @@ forecast_value_for_date <- function(daily_forecasts, date, column) {
   ifelse(is.na(value), NA_real_, value)
 }
 
-has_missing <- function(values) {
-  any(is.na(unlist(values, use.names = FALSE)))
-}
-
-alert_level <- function(label) {
-  if (!label %in% names(HEAT_LEVELS)) {
-    return("")
-  }
-
-  as.character(HEAT_LEVELS[[label]])
-}
-
-season_thresholds <- function(target_date, kind) {
-  month_value <- as.integer(format(as.Date(target_date), "%m"))
-  applicable <- month_value >= 5 && month_value <= 10
-  warm_rule <- month_value >= 7 && month_value <= 10
-
-  if (!applicable) {
-    return(list(
-      applicable = FALSE,
-      rule = "fora de epoca DSP",
-      thresholds = c(yellow = NA_real_, red = NA_real_)
-    ))
-  }
-
-  if (kind == "max") {
-    thresholds <- if (warm_rule) {
-      c(yellow = 33, red = 35)
-    } else {
-      c(yellow = 32, red = 34)
-    }
-  } else {
-    thresholds <- if (warm_rule) {
-      c(yellow = 22, red = 25)
-    } else {
-      c(yellow = 21, red = 24)
-    }
-  }
-
-  list(
-    applicable = TRUE,
-    rule = ifelse(
-      warm_rule,
-      "mes 7-10",
-      "mes 5-6"
-    ),
-    thresholds = thresholds
-  )
-}
-
-classify_tmax_alert <- function(target_date, obs_m3, obs_m2, obs_m1, forecast_d0, forecast_p1) {
-  season <- season_thresholds(target_date, "max")
-  thresholds <- season$thresholds
-  values <- c(obs_m3, obs_m2, obs_m1, forecast_d0, forecast_p1)
-
-  if (!season$applicable) {
-    return(list(
-      alert = "Fora de época",
-      level = alert_level("Fora de época"),
-      yellow = "",
-      red = ""
-    ))
-  }
-
-  if (has_missing(values)) {
-    return(list(
-      alert = "Sem dados",
-      level = alert_level("Sem dados"),
-      yellow = thresholds[["yellow"]],
-      red = thresholds[["red"]]
-    ))
-  }
-
-  alert <- if (all(values >= thresholds[["red"]])) {
-    "Vermelho"
-  } else if (all(c(obs_m1, forecast_d0, forecast_p1) >= thresholds[["yellow"]])) {
-    "Amarelo"
-  } else {
-    "Verde"
-  }
-
-  list(
-    alert = alert,
-    level = alert_level(alert),
-    yellow = thresholds[["yellow"]],
-    red = thresholds[["red"]]
-  )
-}
-
-classify_tmin_alert <- function(target_date, obs_m2, obs_m1, forecast_d0, forecast_p1) {
-  season <- season_thresholds(target_date, "min")
-  thresholds <- season$thresholds
-  values <- c(obs_m2, obs_m1, forecast_d0, forecast_p1)
-
-  if (!season$applicable) {
-    return(list(
-      alert = "Fora de época",
-      level = alert_level("Fora de época"),
-      yellow = "",
-      red = ""
-    ))
-  }
-
-  if (has_missing(values)) {
-    return(list(
-      alert = "Sem dados",
-      level = alert_level("Sem dados"),
-      yellow = thresholds[["yellow"]],
-      red = thresholds[["red"]]
-    ))
-  }
-
-  alert <- if (all(values >= thresholds[["red"]])) {
-    "Vermelho"
-  } else if (all(values >= thresholds[["yellow"]])) {
-    "Amarelo"
-  } else {
-    "Verde"
-  }
-
-  list(
-    alert = alert,
-    level = alert_level(alert),
-    yellow = thresholds[["yellow"]],
-    red = thresholds[["red"]]
-  )
-}
-
-overall_heat_alert <- function(tmax_alert, tmin_alert) {
-  levels <- c(to_num(alert_level(tmax_alert)), to_num(alert_level(tmin_alert)))
-  if (all(levels == to_num(alert_level("Fora de época")))) {
-    return("Fora de época")
-  }
-
-  if (all(levels < 0)) {
-    return("Sem dados")
-  }
-
-  max_level <- max(levels, na.rm = TRUE)
-  names(HEAT_LEVELS)[HEAT_LEVELS == max_level][1]
-}
-
 format_temp <- function(value) {
   if (is.na(value)) {
     return("")
@@ -1293,7 +1148,7 @@ build_temperature_alerts <- function(temperature_history, latest_forecasts) {
 
   rows <- lapply(seq_len(nrow(daily_forecasts)), function(i) {
     target_date <- as.Date(daily_forecasts$forecast_date[i])
-    season <- season_thresholds(target_date, "max")
+    season <- dsp_thresholds(target_date, "tmax")
 
     tmax_obs_m3 <- value_for_date(temperature_history, target_date - 3, "tmax_c")
     tmax_obs_m2 <- value_for_date(temperature_history, target_date - 2, "tmax_c")
@@ -1306,22 +1161,17 @@ build_temperature_alerts <- function(temperature_history, latest_forecasts) {
     tmin_forecast_d0 <- forecast_value_for_date(daily_forecasts, target_date, "tmin_c")
     tmin_forecast_p1 <- forecast_value_for_date(daily_forecasts, target_date + 1, "tmin_c")
 
-    tmax <- classify_tmax_alert(
+    tmax <- dsp_classify_tmax(
       target_date,
-      tmax_obs_m3,
-      tmax_obs_m2,
-      tmax_obs_m1,
-      tmax_forecast_d0,
-      tmax_forecast_p1
+      c(tmax_obs_m3, tmax_obs_m2, tmax_obs_m1),
+      c(tmax_forecast_d0, tmax_forecast_p1)
     )
-    tmin <- classify_tmin_alert(
+    tmin <- dsp_classify_tmin(
       target_date,
-      tmin_obs_m2,
-      tmin_obs_m1,
-      tmin_forecast_d0,
-      tmin_forecast_p1
+      c(tmin_obs_m2, tmin_obs_m1),
+      c(tmin_forecast_d0, tmin_forecast_p1)
     )
-    overall <- overall_heat_alert(tmax$alert, tmin$alert)
+    overall <- dsp_overall_alert(tmax$alert, tmin$alert)
 
     missing <- missing_inputs_text(c(
       tmax_observed_d_minus_3_c = tmax_obs_m3,
@@ -1362,7 +1212,7 @@ build_temperature_alerts <- function(temperature_history, latest_forecasts) {
       tmin_forecast_d0_c = format_temp(tmin_forecast_d0),
       tmin_forecast_d_plus_1_c = format_temp(tmin_forecast_p1),
       overall_temperature_alert = overall,
-      overall_temperature_alert_level = alert_level(overall),
+      overall_temperature_alert_level = dsp_alert_level(overall),
       missing_inputs = missing,
       recommendation_summary = recommendation_summary(overall, tmax$alert, tmin$alert),
       source = "DSP temperature rule using IPMA observed municipality temperatures and IPMA forecasts",

@@ -1,0 +1,78 @@
+name: Testes
+
+# Corre a suite em cada alteração ao código, para que uma regra partida seja
+# apanhada antes de chegar a um boletim. O pipeline diário também corre estes
+# testes, mas só depois de já ter gerado o relatório.
+#
+# O filtro de caminhos evita executar a suite nos commits automáticos do
+# pipeline, que só tocam em data/, daily/ e qualar_matosinhos.csv.
+on:
+  pull_request:
+    paths:
+      - '**.R'
+      - '.github/workflows/tests.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '**.R'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: testes-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          use-public-rspm: true
+
+      - name: Cache das bibliotecas R
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-${{ hashFiles('.github/workflows/tests.yml') }}
+          restore-keys: ${{ runner.os }}-r-
+
+      - name: Instalar packages R
+        shell: Rscript {0}
+        run: |
+          needed <- c("httr", "jsonlite", "dplyr", "readr")
+          missing <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
+          if (length(missing) > 0) {
+            install.packages(missing)
+          }
+
+      - name: Correr a suite
+        shell: bash
+        run: |
+          failed=()
+          for test in tests/*.R; do
+            echo "::group::${test}"
+            if Rscript "$test"; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=${test}::A suite falhou em ${test}."
+              failed+=("$test")
+            fi
+          done
+
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "Testes falhados: ${failed[*]}"
+            exit 1
+          fi
+
+          echo "Todos os ficheiros de teste passaram."
