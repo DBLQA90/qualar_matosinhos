@@ -196,4 +196,5 @@ location,latitude,longitude,forecast_date,qualar_index,source,responsible_pollut
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-15,1,UA,,15,70,12,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-15T16:30:39Z
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-16,1,UA,,11,69,14,7,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-16T19:46:26Z
 "Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-17,1,UA,,8,66,16,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-17T18:43:53Z
-"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-18,1,UA,,9,66,15,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-17T18:43:53Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-18,1,CAMS,,11,79,16,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-18T18:17:43Z
+"Matosinhos, Porto, Portugal",41.1821,-8.6891,2026-11-19,2,CAMS,O3=84,16,84,18,6,Verde (0),Verde (0),Verde (0),Verde (0),0,Verde (0),Nenhum,2026-11-18T18:17:43Z
