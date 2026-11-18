@@ -8414,3 +8414,8 @@ datetime_utc,datetime_local,date_local,station_id,station_name,temperature_c,sou
 2026-11-18T15:00:00Z,2026-11-18T15:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",16,IPMA station hourly observations,2026-11-18T18:16:35Z
 2026-11-18T16:00:00Z,2026-11-18T16:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",15.9,IPMA station hourly observations,2026-11-18T18:16:35Z
 2026-11-18T17:00:00Z,2026-11-18T17:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",16.6,IPMA station hourly observations,2026-11-18T18:16:35Z
+2026-11-18T18:00:00Z,2026-11-18T18:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",16.9,IPMA station hourly observations,2026-11-18T22:39:48Z
+2026-11-18T19:00:00Z,2026-11-18T19:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",17.1,IPMA station hourly observations,2026-11-18T22:39:48Z
+2026-11-18T20:00:00Z,2026-11-18T20:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",17.3,IPMA station hourly observations,2026-11-18T22:39:48Z
+2026-11-18T21:00:00Z,2026-11-18T21:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",16.6,IPMA station hourly observations,2026-11-18T22:39:48Z
+2026-11-18T22:00:00Z,2026-11-18T22:00:00+0000,2026-11-18,1200545,"Porto, Pedras Rubras",16.1,IPMA station hourly observations,2026-11-18T22:39:48Z

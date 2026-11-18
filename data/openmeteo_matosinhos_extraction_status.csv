@@ -1746,3 +1746,8 @@
 "2026-11-18T18:17:36Z","historical-forecast","ok","2026-11-18T18:17:37Z","2026-11-18T18:17:37Z","Open-Meteo arquivo de previsões atualizado: 32 linha(s). "
 "2026-11-18T18:17:36Z","previous-runs","ok","2026-11-18T18:17:37Z","2026-11-18T18:17:38Z","Open-Meteo previous runs atualizados: 248 linha(s). "
 "2026-11-18T18:17:36Z","errors","ok","2026-11-18T18:17:38Z","2026-11-18T18:17:38Z","Open-Meteo erros calculados: 8278 linha(s). "
+"2026-11-18T22:40:37Z","history","ok","2026-11-18T22:40:37Z","2026-11-18T22:40:39Z","Open-Meteo histórico atualizado: 31 linha(s). "
+"2026-11-18T22:40:37Z","forecast","erro","2026-11-18T22:40:39Z","2026-11-18T22:41:30Z","Error in curl::curl_fetch_memory(url, handle = handle): Timeout was reached [api.open-meteo.com]: Connection timed out after 10002 milliseconds Request failed [ERROR]. Retrying in 1 seconds... | Error in curl::curl_fetch_memory(url, handle = handle): Timeout was reached [api.open-meteo.com]: Connection timed out after 10002 milliseconds Request failed [ERROR]. Retrying in 6.4 seconds... | Error in curl::curl_fetch_memory(url, handle = handle): Timeout was reached [api.open-meteo.com]: Connection timed out after 10001 milliseconds Request failed [ERROR]. Retrying in 4.1 seconds... | Timeout was reached [api.open-meteo.com]: Connection timed out after 10002 milliseconds"
+"2026-11-18T22:40:37Z","historical-forecast","ok","2026-11-18T22:41:30Z","2026-11-18T22:41:31Z","Open-Meteo arquivo de previsões atualizado: 31 linha(s). "
+"2026-11-18T22:40:37Z","previous-runs","ok","2026-11-18T22:41:31Z","2026-11-18T22:41:32Z","Open-Meteo previous runs atualizados: 248 linha(s). "
+"2026-11-18T22:40:37Z","errors","ok","2026-11-18T22:41:32Z","2026-11-18T22:41:32Z","Open-Meteo erros calculados: 8278 linha(s). "
