@@ -1796,3 +1796,8 @@
 "2026-11-23T21:36:21Z","historical-forecast","ok","2026-11-23T21:36:23Z","2026-11-23T21:36:24Z","Open-Meteo arquivo de previsões atualizado: 32 linha(s). "
 "2026-11-23T21:36:21Z","previous-runs","ok","2026-11-23T21:36:24Z","2026-11-23T21:36:24Z","Open-Meteo previous runs atualizados: 248 linha(s). "
 "2026-11-23T21:36:21Z","errors","ok","2026-11-23T21:36:24Z","2026-11-23T21:36:25Z","Open-Meteo erros calculados: 8318 linha(s). "
+"2026-11-24T02:44:38Z","history","erro","2026-11-24T02:44:38Z","2026-11-24T02:44:38Z","there is no package called ‘curl’"
+"2026-11-24T02:44:38Z","forecast","erro","2026-11-24T02:44:38Z","2026-11-24T02:44:38Z","there is no package called ‘curl’"
+"2026-11-24T02:44:38Z","historical-forecast","erro","2026-11-24T02:44:38Z","2026-11-24T02:44:38Z","there is no package called ‘curl’"
+"2026-11-24T02:44:38Z","previous-runs","erro","2026-11-24T02:44:38Z","2026-11-24T02:44:38Z","there is no package called ‘curl’"
+"2026-11-24T02:44:38Z","errors","ok","2026-11-24T02:44:38Z","2026-11-24T02:44:39Z","Open-Meteo erros calculados: 8318 linha(s). "
